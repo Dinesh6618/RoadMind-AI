@@ -1,0 +1,106 @@
+/* ==========================================================================
+   Maintenance portal screens (dashboard, work lists, road work panel, reports).
+   Every class is prefixed mt-. Only the shared tokens from styles.css are used
+   (no new colours; tints come from color-mix). Selectors that must beat a rule in
+   styles.css carry a second class, because the load order of the two files is not fixed.
+   ========================================================================== */
+
+/* ---------- small helpers ---------- */
+.card .mt-h { font-size: 1.1rem; margin: 0; }
+.btn.mt-tap { min-height: 44px; }
+.mt-live { margin: 0; }
+.mt-live:empty { margin-top: 0; }
+.mt-live .alert, .mt-block > .alert { margin: 12px 0 0; }
+.mt-after { margin: 16px 0 0; }
+p.mt-after { margin: 16px 0 0; }
+.mt-count { display: inline-flex; justify-content: center; min-width: 26px; padding: 1px 9px; margin-left: 8px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-ink); font-size: 0.78rem; font-weight: 750; vertical-align: middle; }
+.mt-link-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+
+/* ---------- dashboard ---------- */
+.mt-progress { display: grid; gap: 8px; }
+.mt-progress-track { height: 10px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.mt-progress-track i { display: block; height: 100%; border-radius: 99px; background: var(--good); transition: width 0.3s; }
+.mt-queues { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.mt-queue { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 64px; padding: 14px 18px; border: 1.5px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--ink); text-decoration: none; font-weight: 650; box-shadow: var(--shadow-sm); transition: border-color 0.15s, background 0.15s; }
+.mt-queue:hover { border-color: var(--brand-2); background: var(--surface-2); }
+.mt-queue small { display: block; color: var(--muted); font-weight: 450; }
+.mt-queue b { font-size: 1.5rem; letter-spacing: -0.03em; color: var(--brand); font-variant-numeric: tabular-nums; }
+.mt-head-pad { padding: 22px 24px 8px; }
+
+/* ---------- lists (roads / inspections / repairs) ---------- */
+.mt-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
+.mt-filters { display: flex; flex: 1 1 380px; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mt-filters select, .mt-filters .input { width: auto; min-height: 44px; }
+.mt-filters .input.mt-search { flex: 1 1 200px; width: auto; max-width: 320px; }
+.mt-intro { margin: 0; color: var(--ink-2); }
+.mt-intro strong { color: var(--ink); }
+.mt-section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 20px 24px 6px; }
+.mt-section-hint { margin: 0; padding: 0 24px 12px; }
+.split.mt-split { grid-template-columns: minmax(0, 1fr) 360px; }
+table.data.mt-table { min-width: 600px; }
+.mt-table th, .mt-table td { padding-left: 10px; padding-right: 10px; }
+.mt-table tbody td:first-child { min-width: 150px; }
+.mt-table td.mt-act-cell { text-align: right; white-space: nowrap; }
+.mt-table td.mt-act-cell .muted { white-space: normal; display: inline-block; max-width: 200px; text-align: right; }
+.mt-sortbtn { appearance: none; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; margin: 0; padding: 4px 0; border: 0; background: none; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.mt-sortbtn:hover { color: var(--brand); }
+.mt-panel-col { position: sticky; top: 90px; max-height: calc(100dvh - 110px); overflow-y: auto; overscroll-behavior: contain; scroll-margin-top: 80px; }
+
+/* ---------- road work panel ---------- */
+.mt-work-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.card .mt-work-head h2 { margin: 0 0 2px; font-size: 1.3rem; overflow-wrap: anywhere; }
+.mt-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mt-score { font-weight: 800; font-variant-numeric: tabular-nums; }
+.mt-recommend { margin: 0; padding: 10px 14px; border-radius: var(--r-sm); background: var(--brand-soft); color: var(--brand-ink); }
+.mt-block { padding-top: 16px; border-top: 1px solid var(--line); }
+.mt-block > h3 { margin: 0 0 10px; }
+.mt-status-btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.mt-status-btns .btn.mt-tap { white-space: normal; text-align: center; line-height: 1.25; padding: 8px 12px; }
+.mt-field { margin-bottom: 14px; }
+.mt-field:last-child { margin-bottom: 0; }
+.mt-field .input, .mt-field select, .mt-field textarea { min-height: 46px; }
+.mt-field textarea { min-height: 96px; }
+.mt-upload { display: grid; gap: 14px; padding: 16px; border: 1.5px dashed var(--line-strong); border-radius: var(--r); background: var(--surface-2); }
+.mt-upload .alert { margin: 0; }
+.mt-upload .mt-field { margin: 0; }
+.mt-file { padding: 8px 12px; }
+.mt-file::file-selector-button { margin-right: 12px; padding: 8px 14px; border: 0; border-radius: 10px; background: var(--brand-soft); color: var(--brand-ink); font: inherit; font-weight: 650; cursor: pointer; }
+.mt-preview { display: block; max-width: 100%; max-height: 200px; margin: 0 auto; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); object-fit: contain; }
+.mt-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; margin: 16px 0 0; padding: 0; list-style: none; }
+.mt-shot { display: flex; flex-direction: column; height: 100%; margin: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); overflow: hidden; }
+.mt-shot a { display: block; line-height: 0; background: var(--surface-2); }
+.mt-shot img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.mt-shot figcaption { display: grid; gap: 4px; padding: 8px 10px 10px; font-size: 0.78rem; overflow-wrap: anywhere; }
+.mt-shot figcaption .mt-cap { color: var(--ink); font-weight: 600; }
+.mt-mini-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.mt-mini { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; align-items: start; }
+.mt-thumb { display: block; width: 76px; height: 56px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); object-fit: cover; }
+.mt-nophoto { display: grid; place-items: center; width: 76px; height: 56px; padding: 4px; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: 0.7rem; text-align: center; line-height: 1.2; }
+.mt-mini-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.mt-history { margin: 0; padding-left: 18px; }
+.mt-history li + li { margin-top: 4px; }
+.mt-clip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+
+/* ---------- reports ---------- */
+.mt-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; border: 1.5px solid var(--line-strong); border-radius: 999px; background: var(--surface); font-size: 0.85rem; font-weight: 650; }
+.mt-chip .btn { min-height: 32px; padding: 0 10px; border-radius: 999px; }
+.mt-reports { margin: 0; padding: 0; list-style: none; }
+.mt-report { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 16px; align-items: start; padding: 16px 24px; border-bottom: 1px solid var(--line); }
+.mt-report:last-child { border-bottom: 0; }
+.mt-report .mt-thumb, .mt-report .mt-nophoto { width: 140px; height: 100px; }
+.mt-report-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 4px; }
+.mt-report-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 0.85rem; color: var(--muted); }
+.mt-report-desc { margin: 8px 0 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.mt-more { display: grid; justify-items: center; gap: 10px; padding: 18px 24px 24px; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1180px) {
+  .mt-panel-col { position: static; max-height: none; overflow: visible; }
+  .split.mt-split { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .mt-report { grid-template-columns: 92px minmax(0, 1fr); gap: 12px; padding: 14px 16px; }
+  .mt-report .mt-thumb, .mt-report .mt-nophoto { width: 92px; height: 70px; }
+  .mt-section-head, .mt-section-hint, .mt-head-pad { padding-left: 16px; padding-right: 16px; }
+  .mt-more { padding-left: 16px; padding-right: 16px; }
+}

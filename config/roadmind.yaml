@@ -1,0 +1,156 @@
+# RoadMind AI configuration.
+# Every key is optional - anything omitted falls back to the defaults in the code.
+# Override the file location with the ROADMIND_CONFIG environment variable.
+
+detection:
+  backend: auto                  # auto | yolo | heuristic
+  weights_path: ai/models/road_damage_yolo.pt
+  confidence_threshold: 0.30     # detections below this are discarded
+  iou_threshold: 0.45            # NMS overlap threshold
+  image_size: 640                # inference size (YOLO) / working size (heuristic)
+  max_detections: 25
+
+severity:
+  # Maximum points contributed by each component (they sum to 100).
+  size_points: 50
+  type_points: 25
+  count_points: 15
+  history_points: 15
+  size_reference_ratio: 0.15     # share of the image covered by damage that earns full size points
+  count_reference: 6             # number of damaged areas that earns full count points
+  history_reference: 10          # recent reports on the same road that earns full history points
+  history_window_days: 90
+  type_weights:
+    pothole: 1.0
+    alligator_crack: 0.85
+    transverse_crack: 0.55
+    longitudinal_crack: 0.5
+    surface_damage: 0.4
+  # Upper bounds (inclusive) of Low / Moderate / High. Anything above is Critical.
+  level_thresholds: [30, 60, 80]
+
+risk_model:
+  model_path: ai/models/risk_model.joblib
+  metrics_path: ai/models/risk_metrics.json
+  high_threshold: 0.70           # risk >= this -> HIGH
+  medium_threshold: 0.40         # risk >= this -> MEDIUM, otherwise LOW
+  deterioration_flag_threshold: 0.50   # "predicted deterioration" in the dashboard
+  horizon_days: 90
+
+road_condition:
+  history_window_days: 180       # reports older than this no longer count; a road with none left is UNKNOWN again
+  recency_half_life_days: 60
+  max_weight: 0.6                # current severity = max_weight*worst + (1-max_weight)*recency-weighted mean
+  match_radius_m: 60             # a report is attached to the road segment whose centre line is this close
+
+network:
+  # The complete road network comes from OpenStreetMap; RoadMind condition data is an overlay on top of it.
+  source_file: data/osm/demo_area.json   # pre-fetched extract loaded on first start (works offline)
+  remote_enabled: true                   # may fetch more road network from the Overpass API when asked
+  default_bbox: [13.0600, 80.2500, 13.0870, 80.2790]   # south, west, north, east (used if the file is missing)
+  overpass_urls:
+    - https://overpass-api.de/api/interpreter
+    - https://overpass.kumi.systems/api/interpreter
+  overpass_timeout_s: 60
+  auto_import_timeout_s: 20      # shorter budget when a report triggers an import
+  max_import_span_deg: 0.06      # largest area (degrees per side) importable in one request
+  auto_import_radius_m: 900      # network fetched around a report that lands outside any loaded area
+  default_rainfall_mm: 85        # 30-day rainfall assumed for imported roads (no live weather feed)
+  max_segments_per_view: 6000
+
+priority:
+  # priority = 100 * danger * (base_multiplier + exposure_swing * exposure)
+  #   danger   = weighted mean of severity and predicted risk
+  #   exposure = weighted mean of the context factors below (each normalised to 0..1)
+  danger_weights:
+    severity: 0.55
+    risk: 0.45
+  exposure_weights:
+    reports: 0.25
+    traffic: 0.25
+    facilities: 0.15
+    people_affected: 0.15
+    time_since_repair: 0.20
+  base_multiplier: 0.85          # exposure 0 -> x0.85, exposure 1 -> x1.15
+  exposure_swing: 0.30
+  reports_reference: 15          # reports in the window that earn the full "reports" factor
+  traffic_reference: 30000       # vehicles/day that earn the full "traffic" factor
+  facilities_reference: 3        # schools/hospitals nearby that earn the full factor
+  people_per_vehicle: 1.6
+  people_reference: 45000
+  repair_reference_months: 36
+  # Lower bounds of each category
+  immediate_min: 90
+  high_min: 70
+  medium_min: 40
+
+routing:
+  provider: auto                 # auto | network | osrm  (network = RoadMind's graph of the stored OSM network, works offline)
+  osrm_base_url: https://router.project-osrm.org
+  osrm_timeout_s: 6
+  demo_snap_radius_m: 400        # auto mode: both points must be this close to a junction of the stored network
+  max_alternatives: 3
+  penalty_factor: 1.7            # demo router: how strongly edges of earlier routes are discouraged
+  sample_step_m: 25              # spacing of the points used to read road condition along a route
+  match_radius_m: 25             # OSRM routes: how close to a RoadMind road a route must run to count as on it
+  # Risk assumed for stretches with no RoadMind data when ranking routes. Omit (or null) = the average risk of
+  # the roads that DO have data - neither "good" nor "bad". Missing data must not look like either.
+  # unknown_road_risk: 0.3
+  min_data_coverage: 0.15        # below this share of known road, a route's condition is reported as unknown
+  severity_share: 0.5            # damage risk of a road = share*severity + (1-share)*predicted risk
+  # Route score (lower is better) = distance*extra_distance + time*extra_time + damage_risk*risk
+  # where extra_distance / extra_time = how much longer than the shortest / fastest candidate,
+  # scaled so that a detour of `detour_reference` (0.5 = 50 % longer) counts as the maximum 1.0.
+  weights:
+    distance: 0.20
+    time: 0.20
+    damage_risk: 0.60
+  detour_reference: 0.5
+  avoid_risk_threshold: 0.60
+  damage_labels:                 # upper bounds of Low / Moderate / High; above is Severe
+    low: 0.25
+    moderate: 0.50
+    high: 0.70
+
+map:
+  # Base-map picture under the road network. The roads are drawn by RoadMind and never depend on it.
+  # tile.openstreetmap.org is a shared volunteer service with a usage policy
+  # (https://operations.osmfoundation.org/policies/tiles/); for heavy use, point this at your own or a
+  # commercial tile provider (MapTiler, Stadia Maps, Thunderforest...) with its key in the URL, e.g.
+  #   tile_url: https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}.png?key=YOUR_KEY
+  tile_url: https://tile.openstreetmap.org/{z}/{x}/{y}.png
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  max_zoom: 19
+
+geocoding:
+  nominatim_enabled: true        # optional online address search (only called when the user searches)
+  nominatim_url: https://nominatim.openstreetmap.org
+  timeout_s: 5
+
+uploads:
+  max_bytes: 8388608             # 8 MB
+  min_side_px: 64
+  max_pixels: 50000000
+  stored_max_side_px: 1600
+  allowed_formats: [JPEG, PNG, WEBP]
+
+auth:
+  token_hours: 8                 # how long a normal user stays signed in
+  staff_token_hours: 4           # administrators and maintenance staff sign in again sooner
+  setup_local_only: true         # "Create Initial Administrator" works only on the computer running the server
+  public_url: http://127.0.0.1:8000   # base of the links in emails (set this to your real address when deployed)
+  reset_minutes: 30              # how long a password-reset link stays valid
+  verify_hours: 48               # how long an email-verification link stays valid
+  invite_hours: 72               # how long a staff invitation link stays valid
+  min_password_length: 10
+  require_login_to_report: true  # guests may browse, plan routes and try the AI preview; storing a report needs an account
+
+# Outgoing email (verification, staff invitations, password resets). Leave smtp_host empty to write the message to
+# backend/data/outbox/ and the server log instead of sending it. The SMTP password comes from the
+# ROADMIND_SMTP_PASSWORD environment variable - never put it in this file.
+email:
+  smtp_host: ""
+  smtp_port: 587
+  smtp_user: ""
+  starttls: true
+  from_address: "RoadMind AI <no-reply@localhost>"

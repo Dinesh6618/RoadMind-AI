@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoadMind AI - Product Design Board</title>
+<style>
+  @font-face { font-family: 'Plus Jakarta Sans Variable'; font-weight: 200 800; font-display: swap;
+    src: url('../../frontend/node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2') format('woff2-variations'); }
+  :root {
+    --bg: #f5f3ff; --surface: #fff; --line: #e7e3f8; --line-strong: #d6d0f0;
+    --ink: #0f1a3c; --ink-2: #39446b; --muted: #667094;
+    --brand: #5b3df5; --brand-2: #7c5cff; --brand-dark: #4527d8; --brand-soft: #efeaff; --brand-ink: #3c24b8;
+    --grad: linear-gradient(135deg, #7c5cff 0%, #5b3df5 55%, #4527d8 100%);
+    --good: #17a673; --moderate: #f2b01e; --high: #f7762c; --critical: #e0342f; --nodata: #94a3b8;
+    --shadow: 0 2px 4px rgba(15, 26, 60, .03), 0 18px 40px -18px rgba(63, 48, 160, .28);
+    --shadow-lg: 0 30px 70px -28px rgba(46, 31, 140, .45);
+    --font: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font); color: var(--ink); background: radial-gradient(1400px 800px at 90% -5%, rgba(124, 92, 255, .16), transparent 60%), radial-gradient(1100px 700px at -5% 8%, rgba(91, 61, 245, .08), transparent 55%), var(--bg); -webkit-font-smoothing: antialiased; }
+  .board { width: 2400px; padding: 90px 80px 80px; margin: 0 auto; }
+  h1, h2, h3, p { margin: 0; }
+  .top { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 56px; }
+  .top h1 { font-size: 78px; letter-spacing: -.035em; line-height: 1; font-weight: 800; margin: 26px 0 18px; }
+  .top h1 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .top p { font-size: 25px; color: var(--ink-2); max-width: 1180px; line-height: 1.5; }
+  .meta { text-align: right; font-size: 18px; color: var(--muted); line-height: 1.7; }
+  .meta b { color: var(--ink); }
+  .brand { display: inline-flex; align-items: center; gap: 16px; font-weight: 800; font-size: 34px; letter-spacing: -.03em; }
+  .brand .ai { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h2.sec { font-size: 18px; letter-spacing: .14em; text-transform: uppercase; color: var(--brand); font-weight: 800; margin: 70px 0 8px; display: flex; align-items: center; gap: 14px; }
+  h2.sec::after { content: ''; flex: 1; height: 2px; background: linear-gradient(90deg, var(--line-strong), transparent); }
+  .sec-sub { font-size: 22px; color: var(--ink-2); margin-bottom: 30px; max-width: 1300px; line-height: 1.5; }
+  .grid { display: grid; gap: 28px; }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--surface); border: 1px solid rgba(231, 227, 248, .9); border-radius: 28px; box-shadow: var(--shadow); padding: 34px; }
+  .card h3 { font-size: 22px; font-weight: 750; letter-spacing: -.02em; margin-bottom: 6px; }
+  .card .cap { font-size: 16px; color: var(--muted); line-height: 1.55; }
+  .tag { display: inline-block; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); background: var(--brand-soft); padding: 5px 12px; border-radius: 999px; margin-bottom: 14px; }
+
+  /* principles */
+  .principle { padding: 30px 32px; }
+  .principle .n { font-size: 15px; font-weight: 800; color: var(--brand); letter-spacing: .08em; margin-bottom: 10px; }
+  .principle h3 { font-size: 24px; margin-bottom: 10px; }
+  .principle p { font-size: 17px; color: var(--ink-2); line-height: 1.55; }
+
+  /* foundations */
+  .swatches { display: grid; gap: 12px; margin-top: 18px; }
+  .sw { display: flex; align-items: center; gap: 16px; }
+  .sw i { width: 62px; height: 62px; border-radius: 18px; flex: none; box-shadow: inset 0 0 0 1px rgba(15, 26, 60, .06); }
+  .sw b { display: block; font-size: 17px; }
+  .sw span { font-size: 14px; color: var(--muted); }
+  .logo-row { display: flex; gap: 22px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
+  .logo-dark { background: linear-gradient(150deg, #6a47ff, #2a1a8f); border-radius: 22px; padding: 18px 22px; color: #fff; display: inline-flex; align-items: center; gap: 12px; font-weight: 800; font-size: 24px; letter-spacing: -.03em; }
+  .logo-dark .ai { color: #c9bcff; }
+  .type-big { font-size: 56px; font-weight: 800; letter-spacing: -.035em; line-height: 1; margin: 16px 0 6px; }
+  .type-row { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px dashed var(--line); padding: 9px 0; }
+  .type-row span { color: var(--muted); font-size: 14px; }
+  .shapes { display: flex; gap: 16px; align-items: flex-end; margin-top: 18px; }
+  .shapes div { background: var(--brand-soft); border: 1.5px solid var(--line-strong); display: grid; place-items: center; font-size: 13px; font-weight: 700; color: var(--brand-ink); }
+
+  /* components */
+  .btn { display: inline-flex; align-items: center; justify-content: center; height: 54px; padding: 0 28px; border-radius: 16px; font: inherit; font-weight: 700; font-size: 17px; border: 1.5px solid var(--line-strong); background: #fff; color: var(--ink); }
+  .btn.primary { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 14px 28px -12px rgba(91, 61, 245, .7); }
+  .btn.soft { background: var(--brand-soft); color: var(--brand-ink); border-color: transparent; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; font-weight: 750; font-size: 15px; padding: 7px 15px; border-radius: 999px; color: var(--ink-c); background: color-mix(in srgb, var(--c) 16%, white); }
+  .badge i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .stat { border-radius: 22px; padding: 22px 24px; background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); position: relative; overflow: hidden; }
+  .stat::after { content: ''; position: absolute; right: -26px; top: -26px; width: 100px; height: 100px; border-radius: 50%; background: color-mix(in srgb, var(--c) 14%, white); }
+  .stat b { display: block; font-size: 40px; letter-spacing: -.03em; position: relative; z-index: 1; }
+  .stat span { font-size: 15px; color: var(--ink-2); font-weight: 650; position: relative; z-index: 1; }
+  .route { border: 2px solid var(--c); border-radius: 22px; padding: 18px 20px; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 7%, white), #fff 70%); }
+  .route .l { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: var(--c); color: #fff; font-weight: 800; margin-right: 10px; }
+  .route .h { display: flex; align-items: center; justify-content: space-between; font-weight: 750; font-size: 19px; }
+  .route .m { display: flex; gap: 22px; margin-top: 12px; font-size: 14px; color: var(--muted); }
+  .route .m b { display: block; font-size: 20px; color: var(--ink); }
+  .ring { width: 150px; height: 150px; border-radius: 50%; background: conic-gradient(#fff 0 87%, rgba(255, 255, 255, .28) 0); display: grid; place-items: center; }
+  .ring div { width: 118px; height: 118px; border-radius: 50%; background: #c9241f; color: #fff; display: grid; place-items: center; text-align: center; font-weight: 800; font-size: 40px; line-height: 1; }
+  .ring small { display: block; font-size: 15px; opacity: .85; font-weight: 600; margin-top: 4px; }
+
+  /* screens */
+  .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px; align-items: start; }
+  .col { display: grid; gap: 36px; }
+  .shot figcaption { display: flex; gap: 14px; align-items: baseline; margin-bottom: 14px; }
+  .shot figcaption .no { font-size: 15px; font-weight: 800; color: #fff; background: var(--grad); border-radius: 10px; padding: 4px 10px; flex: none; }
+  .shot figcaption b { font-size: 22px; letter-spacing: -.02em; }
+  .shot figcaption span { font-size: 15px; color: var(--muted); display: block; margin-top: 2px; line-height: 1.45; font-weight: 500; }
+  .shot { margin: 0; }
+  .frame { border-radius: 22px; overflow: hidden; background: #fff; box-shadow: var(--shadow-lg); border: 1px solid rgba(15, 26, 60, .08); }
+  .frame .bar { height: 30px; background: #eceaf7; display: flex; align-items: center; gap: 7px; padding: 0 14px; }
+  .frame .bar i { width: 10px; height: 10px; border-radius: 50%; background: #cfc9ea; }
+  .frame img { display: block; width: 100%; height: auto; }
+  .phones { display: grid; grid-template-columns: repeat(6, 1fr); gap: 34px; align-items: start; }
+  .phone { border-radius: 46px; background: #0f1a3c; padding: 11px; box-shadow: var(--shadow-lg); }
+  .phone img { display: block; width: 100%; height: auto; border-radius: 36px; }
+  .phones figcaption { display: block; margin-top: 18px; text-align: center; font-weight: 750; font-size: 19px; }
+  .phones figcaption span { display: block; font-weight: 500; font-size: 14.5px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+  .portal-head { margin-bottom: -6px; }
+  .portal-head p { margin: 10px 2px 0; color: var(--ink-2); font-size: 16px; line-height: 1.5; }
+  .chip { display: inline-block; font-size: 15px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 8px 16px; border-radius: 999px; }
+  .chip.user { background: var(--brand-soft); color: var(--brand-ink); }
+  .chip.admin { background: #0f1a3c; color: #c9bcff; }
+  .chip.maint { background: #14181f; color: #ffcd85; }
+  .honest { margin-top: 70px; border-radius: 28px; padding: 34px 40px; background: #fffaf0; border: 1px solid #f3dfa8; border-left: 8px solid var(--moderate); }
+  .honest h3 { font-size: 22px; margin-bottom: 10px; }
+  .honest ul { margin: 0; padding-left: 22px; font-size: 18px; color: #5b4300; line-height: 1.7; }
+</style>
+</head>
+<body>
+<main class="board">
+
+  <header class="top">
+    <div>
+      <span class="brand">
+        <svg width="62" height="62" viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8f72ff"/><stop offset="1" stop-color="#4527d8"/></linearGradient></defs><rect width="48" height="48" rx="14" fill="url(#g)"/><path d="M14 38 21.4 10.5H28a7.6 7.6 0 0 1 0 15.2H19.2" fill="none" stroke="#fff" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M27.2 25.7 34.6 38" fill="none" stroke="#fff" stroke-width="3.8" stroke-linecap="round"/><path d="M15.6 32.2 20 15.6" fill="none" stroke="#6a4bff" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2.6 3.2"/><circle cx="35.5" cy="12.5" r="3.1" fill="#7df0c3"/></svg>
+        RoadMind <span class="ai">AI</span>
+      </span>
+      <h1>Product design board<br><em>One system, every screen.</em></h1>
+      <p>A premium, calm interface for detecting road damage, predicting risk, prioritising maintenance and recommending safer routes. Every screen below is a screenshot of the running application, not a mock-up.</p>
+    </div>
+    <div class="meta">
+      <b>Design system v1</b><br>
+      Plus Jakarta Sans &middot; indigo &amp; lavender<br>
+      Desktop 1440 px &middot; Mobile 390 px<br>
+      Tokens: <b>frontend/src/styles.css</b>
+    </div>
+  </header>
+
+  <h2 class="sec">Design principles</h2>
+  <div class="grid g4">
+    <div class="card principle"><div class="n">01</div><h3>The whole network, always</h3><p>Every road in OpenStreetMap stays on the map. RoadMind condition data is a colour layer on top, never a filter that hides roads.</p></div>
+    <div class="card principle"><div class="n">02</div><h3>Honest about what it doesn't know</h3><p>A road without data is grey &ldquo;No Data&rdquo;. It is never scored good or bad, and routes are neither rewarded nor penalised for it.</p></div>
+    <div class="card principle"><div class="n">03</div><h3>Calm, premium, accessible</h3><p>Soft lavender surfaces, deep-navy type, large rounded cards, AA-contrast text and colour that is always paired with a label.</p></div>
+    <div class="card principle"><div class="n">04</div><h3>Clarity before density</h3><p>One primary action per screen, plain-language results and AI estimates that say they are estimates.</p></div>
+  </div>
+
+  <h2 class="sec">Foundations</h2>
+  <div class="grid g4">
+    <div class="card">
+      <span class="tag">Logo</span>
+      <h3>Road-inspired &ldquo;R&rdquo;</h3>
+      <p class="cap">An R letterform with a dashed centre line and a green &ldquo;signal&rdquo; dot for the AI. Works at 24 px and on dark.</p>
+      <div class="logo-row">
+        <svg width="96" height="96" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="14" fill="url(#g)"/><path d="M14 38 21.4 10.5H28a7.6 7.6 0 0 1 0 15.2H19.2" fill="none" stroke="#fff" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M27.2 25.7 34.6 38" fill="none" stroke="#fff" stroke-width="3.8" stroke-linecap="round"/><path d="M15.6 32.2 20 15.6" fill="none" stroke="#6a4bff" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2.6 3.2"/><circle cx="35.5" cy="12.5" r="3.1" fill="#7df0c3"/></svg>
+        <span class="brand" style="font-size:30px">RoadMind <span class="ai">AI</span></span>
+      </div>
+      <div class="logo-row"><span class="logo-dark"><svg width="36" height="36" viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="14" fill="url(#g)"/><path d="M14 38 21.4 10.5H28a7.6 7.6 0 0 1 0 15.2H19.2" fill="none" stroke="#fff" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M27.2 25.7 34.6 38" fill="none" stroke="#fff" stroke-width="3.8" stroke-linecap="round"/><circle cx="35.5" cy="12.5" r="3.1" fill="#7df0c3"/></svg>RoadMind <span class="ai">AI</span></span></div>
+    </div>
+    <div class="card">
+      <span class="tag">Brand &amp; surfaces</span>
+      <h3>Indigo on lavender</h3>
+      <div class="swatches">
+        <div class="sw"><i style="background:var(--grad)"></i><div><b>Primary gradient</b><span>#7C5CFF &rarr; #5B3DF5 &rarr; #4527D8</span></div></div>
+        <div class="sw"><i style="background:#0f1a3c"></i><div><b>Deep navy</b><span>#0F1A3C &middot; text, sidebar</span></div></div>
+        <div class="sw"><i style="background:#f5f3ff"></i><div><b>Lavender canvas</b><span>#F5F3FF &middot; page background</span></div></div>
+        <div class="sw"><i style="background:#efeaff"></i><div><b>Soft indigo</b><span>#EFEAFF &middot; selected, chips</span></div></div>
+        <div class="sw"><i style="background:#fff"></i><div><b>Surface</b><span>#FFFFFF &middot; cards, 18&ndash;28 px radius</span></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <span class="tag">Road condition</span>
+      <h3>Colour always has a name</h3>
+      <div class="swatches">
+        <div class="sw"><i style="background:var(--good)"></i><div><b>Good</b><span>#17A673</span></div></div>
+        <div class="sw"><i style="background:var(--moderate)"></i><div><b>Moderate</b><span>#F2B01E</span></div></div>
+        <div class="sw"><i style="background:var(--high)"></i><div><b>High Risk</b><span>#F7762C</span></div></div>
+        <div class="sw"><i style="background:var(--critical)"></i><div><b>Critical</b><span>#E0342F</span></div></div>
+        <div class="sw"><i style="background:var(--nodata)"></i><div><b>No Data</b><span>#94A3B8 &middot; unknown, not &ldquo;fine&rdquo;</span></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <span class="tag">Type &amp; shape</span>
+      <h3>Plus Jakarta Sans</h3>
+      <div class="type-big">Aa 87/100</div>
+      <div class="type-row"><b style="font-size:30px;letter-spacing:-.03em">Display 800</b><span>Hero &amp; scores</span></div>
+      <div class="type-row"><b style="font-size:22px">Heading 750</b><span>Cards &amp; sections</span></div>
+      <div class="type-row"><b style="font-size:16px;font-weight:500">Body 500 / 15 px</b><span>Copy &amp; tables</span></div>
+      <div class="shapes">
+        <div style="width:54px;height:54px;border-radius:12px">12</div>
+        <div style="width:64px;height:64px;border-radius:18px">18</div>
+        <div style="width:76px;height:76px;border-radius:24px">24</div>
+        <div style="width:88px;height:88px;border-radius:28px">28</div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sec">Components</h2>
+  <div class="grid" style="grid-template-columns: 1.1fr 1fr 1.1fr 1fr;">
+    <div class="card">
+      <span class="tag">Actions</span>
+      <div class="row" style="margin-top:6px"><span class="btn primary">Submit Report</span><span class="btn">Plan a Safer Route</span><span class="btn soft">Use Current Location</span></div>
+      <div class="row" style="margin-top:26px">
+        <span class="badge" style="--c:var(--good);--ink-c:#0b6e4b"><i></i>Good</span>
+        <span class="badge" style="--c:var(--moderate);--ink-c:#8a5a00"><i></i>Moderate</span>
+        <span class="badge" style="--c:var(--high);--ink-c:#a8470b"><i></i>High Risk</span>
+        <span class="badge" style="--c:var(--critical);--ink-c:#a3191a"><i></i>Critical</span>
+        <span class="badge" style="--c:var(--nodata);--ink-c:#475569"><i></i>No Data</span>
+      </div>
+    </div>
+    <div class="card" style="background:linear-gradient(160deg,#c9241f,#9d1a17);color:#fff;display:flex;gap:26px;align-items:center">
+      <div class="ring"><div>87<small>/100</small></div></div>
+      <div><span class="badge" style="--c:#fff;--ink-c:#fff;background:rgba(255,255,255,.2)">CRITICAL</span><h3 style="font-size:26px;margin-top:12px">Severity score</h3><p style="font-size:16px;opacity:.9;margin-top:6px">Large ring + label, colour follows the severity band.</p></div>
+    </div>
+    <div class="card">
+      <span class="tag">Route options</span>
+      <div class="grid" style="gap:12px;margin-top:4px">
+        <div class="route" style="--c:#e0342f"><div class="h"><span><span class="l">A</span>Route A</span><span class="badge" style="--c:#e0342f;--ink-c:#a3191a">High risk</span></div></div>
+        <div class="route" style="--c:#0fa968"><div class="h"><span><span class="l">B</span>Route B</span><span class="badge" style="--c:#0fa968;--ink-c:#0b6e4b">Recommended</span></div></div>
+        <div class="route" style="--c:#f7762c"><div class="h"><span><span class="l">C</span>Route C</span><span class="badge" style="--c:#f7762c;--ink-c:#a8470b">Alternative</span></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <span class="tag">Stat cards</span>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px;margin-top:4px">
+        <div class="stat" style="--c:var(--critical)"><b>25</b><span>Critical Roads</span></div>
+        <div class="stat" style="--c:var(--good)"><b>1,052</b><span>Repairs Completed</span></div>
+        <div class="stat" style="--c:#5b3df5"><b>2,587</b><span>Total Roads</span></div>
+        <div class="stat" style="--c:var(--nodata)"><b>2,110</b><span>No RoadMind Data</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sec">Citizen experience &middot; web</h2>
+  <p class="sec-sub">Home, report, AI result, interactive map, route planner and route recommendation &mdash; the journey from &ldquo;I saw a pothole&rdquo; to &ldquo;I took a safer road&rdquo;.</p>
+  <div class="cols">
+    <div class="col">
+      <figure class="shot"><figcaption><span class="no">01</span><div><b>Home / Landing</b><span>Safer Roads for a Better Tomorrow &middot; live stats &middot; four feature cards</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_home.jpg" alt="Home"></div></figure>
+      <figure class="shot"><figcaption><span class="no">02</span><div><b>Report &middot; Upload Image</b><span>Step 1 of 4 &middot; camera or gallery &middot; sample photos for demos</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_report_1.jpg" alt="Report step 1"></div></figure>
+      <figure class="shot"><figcaption><span class="no">03</span><div><b>Report &middot; Location</b><span>Use Current Location or Select on Map &middot; the road is matched on the full network</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_report_2.jpg" alt="Report step 2"></div></figure>
+    </div>
+    <div class="col">
+      <figure class="shot"><figcaption><span class="no">04</span><div><b>Report &middot; Description &amp; Submit</b><span>Steps 3&ndash;4 &middot; road name, notes, one big primary button</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_report_4.jpg" alt="Report step 4"></div></figure>
+      <figure class="shot"><figcaption><span class="no">05</span><div><b>AI Detection Result</b><span>Boxes on the photo &middot; detected damages with confidence &middot; severity ring &middot; report ID</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_result.jpg" alt="AI result"></div></figure>
+      <figure class="shot"><figcaption><span class="no">06</span><div><b>Interactive Road Map</b><span>Complete OSM network &middot; condition filters &middot; floating road card with View Details / Get Route</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_map.jpg" alt="Road map"></div></figure>
+    </div>
+    <div class="col">
+      <figure class="shot"><figcaption><span class="no">07</span><div><b>Route Planner</b><span>From / To &middot; preferences &middot; Find Best Route &middot; routes drawn over the dimmed network</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_routes_top.jpg" alt="Route planner"></div></figure>
+      <figure class="shot"><figcaption><span class="no">08</span><div><b>Route Recommendation</b><span>A high risk &middot; B recommended &middot; C alternative &middot; comparison table</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_routes_full.jpg" alt="Route recommendation"></div></figure>
+    </div>
+  </div>
+
+  <h2 class="sec">Who are you? &mdash; two doors</h2>
+  <p class="sec-sub">The first screen asks the visitor to choose. Users and Admin &amp; Road Maintenance staff enter through visibly different pages, never one combined form. The staff door is a single sign-in page for administrators and maintenance employees: the server checks the password, account status, verified email and role, and the role it finds picks the dashboard. Its front page is the Admin Portal: <b>Login</b> for existing accounts, <b>Create Account</b> to <em>request</em> one. A request grants nothing &mdash; the email is verified first, then an existing administrator approves or rejects it.</p>
+  <div class="cols">
+    <div class="col">
+      <div class="portal-head"><span class="chip user">User door</span><p>Bright and friendly: road imagery, Login, Create User Account or Continue as Guest.</p></div>
+      <figure class="shot"><figcaption><span class="no">09</span><div><b>Welcome to RoadMind AI &mdash; Who are you?</b><span>/ &middot; first screen &middot; I'm a User / Admin &amp; Road Maintenance</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_roles.jpg" alt="Welcome to RoadMind AI &mdash; Who are you?"></div></figure>
+      <figure class="shot"><figcaption><span class="no">10</span><div><b>Welcome Back</b><span>/user/login &middot; Login &middot; Create User Account &middot; Continue as Guest &middot; Back to Role Selection</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_user_login.jpg" alt="Welcome Back"></div></figure>
+      <figure class="shot"><figcaption><span class="no">11</span><div><b>Create your account</b><span>/user/register &middot; name, email, password, confirm &middot; the role is always &ldquo;user&rdquo;</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_user_register.jpg" alt="Create your account"></div></figure>
+    </div>
+    <div class="col">
+      <div class="portal-head"><span class="chip admin">Admin &amp; Road Maintenance door</span><p>Dark and security-focused. Login for existing accounts, a request form for new ones.</p></div>
+      <figure class="shot"><figcaption><span class="no">12</span><div><b>Admin Portal</b><span>/admin/portal &middot; Login (solid) and Create Account (dashed outline) &middot; Back to User/Admin Selection</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_admin_portal.jpg" alt="Admin Portal"></div></figure>
+      <figure class="shot"><figcaption><span class="no">13</span><div><b>Authorized Access</b><span>/admin/login &middot; Verify &amp; Login &middot; Forgot Password? &middot; Back to Admin Portal</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_admin_login.jpg" alt="Authorized Access"></div></figure>
+      <figure class="shot"><figcaption><span class="no">14</span><div><b>Create Authorized Account</b><span>/admin/register &middot; a request only: verify the email, then wait for an administrator</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_admin_register.jpg" alt="Create Authorized Account"></div></figure>
+      <figure class="shot"><figcaption><span class="no">15</span><div><b>Create Initial Administrator</b><span>/setup &middot; first run, server computer only &middot; nobody exists yet who could approve it</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_setup.png" alt="Create Initial Administrator"></div></figure>
+    </div>
+    <div class="col">
+      <div class="portal-head"><span class="chip maint">After approval &amp; sign-in</span><p>Administrators decide who gets in; maintenance staff see only the roads assigned to them.</p></div>
+      <figure class="shot"><figcaption><span class="no">16</span><div><b>Users &middot; pending approvals</b><span>An administrator approves (and chooses the role) or rejects each request; invitations are still available</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_admin_users.jpg" alt="Users &middot; pending approvals"></div></figure>
+      <figure class="shot"><figcaption><span class="no">17</span><div><b>Maintenance dashboard</b><span>/maintenance/dashboard &middot; assigned roads, priorities, inspection and repair queues</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_maint_dashboard.jpg" alt="Maintenance dashboard"></div></figure>
+      <figure class="shot"><figcaption><span class="no">18</span><div><b>Assigned road &middot; work panel</b><span>Severity, predicted risk, priority breakdown, inspection / repair status, notes and photo evidence</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_maint_roads.jpg" alt="Assigned road &middot; work panel"></div></figure>
+      <figure class="shot"><figcaption><span class="no">19</span><div><b>Access Denied</b><span>A normal user at /admin/dashboard &middot; the API answers 403 too</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_denied.jpg" alt="Access Denied"></div></figure>
+    </div>
+  </div>
+
+  <h2 class="sec">Administrator workspace</h2>
+  <p class="sec-sub">Sidebar navigation, eight headline numbers, three charts and a Top 5 maintenance table; roads are assigned to maintenance staff from the Maintenance page.</p>
+  <div class="cols">
+    <div class="col">
+      <figure class="shot"><figcaption><span class="no">20</span><div><b>Admin Dashboard</b><span>/admin/dashboard &middot; Total Roads &middot; Reports &middot; Critical &middot; High Risk &middot; Repairs &middot; Inspection &middot; Pending &middot; plus No Data</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_admin.jpg" alt="Admin Dashboard"></div></figure>
+    </div>
+    <div class="col">
+      <figure class="shot"><figcaption><span class="no">21</span><div><b>Maintenance &middot; assign a road</b><span>/admin/maintenance &middot; priority breakdown, &ldquo;Assigned to&rdquo;, status updates and notes</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_admin_assign.jpg" alt="Maintenance &middot; assign a road"></div></figure>
+    </div>
+    <div class="col">
+      <figure class="shot"><figcaption><span class="no">22</span><div><b>Route Analytics</b><span>/admin/routes &middot; which roads routes steer drivers away from</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_admin_routes.jpg" alt="Route Analytics"></div></figure>
+      <figure class="shot"><figcaption><span class="no">23</span><div><b>Account Settings</b><span>Profile &middot; change password (current / new / confirm) &middot; sign out everywhere</span></div></figcaption><div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="screens/d_admin_settings.jpg" alt="Account Settings"></div></figure>
+    </div>
+  </div>
+
+  <h2 class="sec">Mobile</h2>
+  <p class="sec-sub">The same system at 390 px: bottom navigation (Home, Map, Report, Routes, Profile) with a raised Report button, full-bleed map with a bottom sheet, single-column cards. The role selection, the Admin Portal and both sign-in doors collapse to one column too.</p>
+  <div class="phones">
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_home.jpg" alt="Home"></div><figcaption>Home<span>Hero, two actions, AI card</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_map.jpg" alt="Road Map"></div><figcaption>Road Map<span>Filters + road sheet</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_report.jpg" alt="Report"></div><figcaption>Report<span>Four-step stepper</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_routes.jpg" alt="Routes"></div><figcaption>Routes<span>From / To, preferences</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_route_result.jpg" alt="Route Recommendation"></div><figcaption>Route Recommendation<span>A / B / C cards</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_result.jpg" alt="AI Result"></div><figcaption>AI Result<span>Detection + severity</span></figcaption></figure>
+  </div>
+  <div class="phones" style="margin-top:46px">
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_roles.jpg" alt="Who are you?"></div><figcaption>Who are you?<span>Role selection</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_user_login.jpg" alt="Welcome Back"></div><figcaption>Welcome Back<span>User login</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_admin_portal.jpg" alt="Admin Portal"></div><figcaption>Admin Portal<span>Login / Create Account</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_admin_login.jpg" alt="Authorized Access"></div><figcaption>Authorized Access<span>Admin & Road Maintenance</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_maint_dashboard.jpg" alt="Maintenance dashboard"></div><figcaption>Maintenance dashboard<span>Assigned roads at a glance</span></figcaption></figure>
+    <figure class="shot" style="margin:0"><div class="phone"><img src="screens/m_maint_roads.jpg" alt="Assigned roads"></div><figcaption>Assigned roads<span>Work list + panel</span></figcaption></figure>
+  </div>
+
+  <section class="honest">
+    <h3>What these screens are, and are not</h3>
+    <ul>
+      <li>Screenshots of the real running app. Roads, place names and map tiles are real OpenStreetMap data (Chennai sample area).</li>
+      <li>The condition colours, reports, severity and risk numbers are <b>simulated demo data</b> on roughly 18% of the roads &mdash; the rest are grey &ldquo;No Data&rdquo;, exactly as the product intends.</li>
+      <li>No mail server is configured by default, so verification, invitation, approval and reset &ldquo;emails&rdquo; are written to <code>backend/data/outbox/</code>. The portal screenshots come from a scratch install with demo accounts (&ldquo;Demo Administrator&rdquo;, gmail.com / example.org addresses made up for the shots) - nothing in the product is pre-created, and the requests shown in Users were made through the Create Account form.</li>
+      <li>Damage detection here is a heuristic OpenCV detector and the risk model is trained on synthetic data; both say so in the UI. Statistics on the home page are live numbers, not marketing placeholders. The hero is an illustration (drop <code>frontend/public/hero.jpg</code> to use a photo).</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

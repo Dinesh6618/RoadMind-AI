@@ -1,0 +1,21 @@
+# Optional PostgreSQL + PostGIS database (not needed for the default SQLite demo).
+#
+#   docker compose up -d db
+#   pip install -r requirements-postgres.txt
+#   set ROADMIND_DATABASE_URL=postgresql+psycopg://roadmind:roadmind@localhost:5432/roadmind   (PowerShell: $env:...)
+#
+# NOTE: not exercised in the development environment (Docker was unavailable) - treat as a starting point.
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: roadmind
+      POSTGRES_PASSWORD: roadmind
+      POSTGRES_DB: roadmind
+    ports:
+      - "5432:5432"
+    volumes:
+      - roadmind-pg:/var/lib/postgresql/data
+      - ./db/postgis_extras.sql:/docker-entrypoint-initdb.d/10_postgis_extras.sql:ro
+volumes:
+  roadmind-pg:
