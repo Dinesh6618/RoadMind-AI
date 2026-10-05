@@ -1,10 +1,20 @@
 import { ShieldAlert } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useLocation } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { api, getToken, setToken, useApi } from './api'
 import { Spinner } from './components'
+import ConfirmDialog from './ConfirmDialog'
+import { setFlash } from './flash'
 
 const AuthContext = createContext(null)
+
+// Set when the person chose to log out (cleared by the next sign-in): a protected user page opened afterwards - for example with the
+// browser Back button, or in another tab - sends them to the Welcome page, not to a login form and never back to the page they signed
+// out of. (localStorage, so every tab of this browser agrees.)
+const LOGGED_OUT_KEY = 'roadmind_logged_out'
+const wasLoggedOut = () => { try { return localStorage.getItem(LOGGED_OUT_KEY) === '1' } catch { return false } }
+const markLoggedOut = (on) => { try { on ? localStorage.setItem(LOGGED_OUT_KEY, '1') : localStorage.removeItem(LOGGED_OUT_KEY) } catch { /* storage blocked */ } }
+export const LOGGED_OUT_MESSAGE = 'You have been logged out successfully.'
 
 /**
  * Two doors, chosen on the first screen ("Who are you?"): normal users, and Admin & Road Maintenance. The login
@@ -24,6 +34,8 @@ export const homeOf = (role) => ({ admin: '/admin/dashboard', maintenance: '/mai
  * show the right menus. Every protected API call is checked again on the server.
  */
 export function AuthProvider({ children }) {
+  const navigate = useNavigate()
+  const [askSignOut, setAskSignOut] = useState(false)
   const [token, setTokenState] = useState(getToken())
   const [user, setUser] = useState(null)
   const [ready, setReady] = useState(!getToken()) // with a stored token we must ask who it belongs to first
@@ -43,10 +55,34 @@ export function AuthProvider({ children }) {
     setReady(true)
   }, [])
 
-  /** Sign out: end this session on the server too (best effort), then forget it here. */
+  /** The session ended without the person asking (an expired or revoked token): end it on the server too (best effort) and forget it here.
+   *  The page's guard then sends them to the sign-in page, with the page they were on remembered. */
   const logout = useCallback(() => {
     if (getToken()) api('/auth/logout', { method: 'POST' }).catch(() => {})
     clear()
+  }, [clear])
+
+  /** The person chose to log out: a REAL logout - the session is revoked on the server, the token and the signed-in state are removed here,
+   *  and they land on the Welcome page (staff on their own sign-in page) with a confirmation line. */
+  const signOut = useCallback(() => {
+    const staff = user ? portalOf(user.role) === 'staff' : false
+    if (getToken()) api('/auth/logout', { method: 'POST' }).catch(() => {})
+    markLoggedOut(true)
+    setFlash(LOGGED_OUT_MESSAGE)
+    setAskSignOut(false)
+    clear()
+    navigate(staff ? PORTALS.staff.path : '/welcome', { replace: true })
+  }, [user, clear, navigate])
+  const requestSignOut = useCallback(() => setAskSignOut(true), [])
+
+  // Another tab logged out: this one must not stay signed in. And a page restored from the browser's back/forward cache (Back after
+  // logout) skips every guard, so check again when it comes back.
+  useEffect(() => {
+    const onStorage = (e) => { if (e.key === null || e.key === 'roadmind_token') { if (!getToken()) clear() } }
+    const onPageShow = (e) => { if (e.persisted && !getToken()) { clear(); window.location.replace(wasLoggedOut() ? '/welcome' : '/user/login') } }
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('pageshow', onPageShow)
+    return () => { window.removeEventListener('storage', onStorage); window.removeEventListener('pageshow', onPageShow) }
   }, [clear])
 
   // After a page load only the token survives: look the account up again (an expired or revoked token logs out).
@@ -62,6 +98,7 @@ export function AuthProvider({ children }) {
 
   /** Adopt a session returned by the API (login, register, password change). */
   const adopt = useCallback((res) => {
+    markLoggedOut(false)
     setToken(res.access_token)
     setTokenState(res.access_token)
     setUser(res.user ?? null)
@@ -75,11 +112,21 @@ export function AuthProvider({ children }) {
   const value = useMemo(
     () => ({
       user, isAuthed: !!token && !!user, isAdmin: user?.role === 'admin', isMaintenance: user?.role === 'maintenance',
-      ready, setup, refreshSetup, loginTo, login: (i, p) => loginTo('user', i, p), register, logout, adopt, setUser,
+      ready, setup, refreshSetup, loginTo, login: (i, p) => loginTo('user', i, p), register, logout, signOut, requestSignOut, adopt, setUser,
     }),
-    [user, token, ready, setup, refreshSetup, loginTo, register, logout, adopt],
+    [user, token, ready, setup, refreshSetup, loginTo, register, logout, signOut, requestSignOut, adopt],
   )
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      {askSignOut && (
+        <ConfirmDialog
+          title="Are you sure you want to log out?" message="You will need to sign in again to use RoadMind." confirmLabel="Logout" cancelLabel="Cancel"
+          onConfirm={signOut} onCancel={() => setAskSignOut(false)}
+        />
+      )}
+    </AuthContext.Provider>
+  )
 }
 
 export const useAuth = () => useContext(AuthContext)
@@ -111,6 +158,8 @@ function Gate({ children, need }) {
     // first run: there is nobody to sign in as yet, so go straight to the setup page (on the server computer);
     // once the first account exists (even unverified) the normal sign-in page is the right place
     if (setup.required && need === 'admin' && setup.allowedHere && !setup.pending) return <Navigate to="/setup" replace />
+    // someone who logged out and comes back to a protected user page (the Back button, a bookmark) starts again at the Welcome page
+    if (need === 'user' && wasLoggedOut()) return <Navigate to="/welcome" replace />
     return <Navigate to={PORTALS[need === 'user' ? 'user' : 'staff'].path} replace state={{ from: location.pathname + location.search }} />
   }
   if (need !== 'user' && user.role !== need) return <AccessDenied area={need} />
@@ -122,7 +171,7 @@ export const RequireAdmin = ({ children }) => <Gate need="admin">{children}</Gat
 export const RequireMaintenance = ({ children }) => <Gate need="maintenance">{children}</Gate>
 
 export function AccessDenied({ area = 'admin' }) {
-  const { user, logout } = useAuth()
+  const { user, requestSignOut } = useAuth()
   const [text, button] = DENIED[area]?.[user?.role] || DENIED.admin.user
   return (
     <div className="container page">
@@ -133,7 +182,7 @@ export function AccessDenied({ area = 'admin' }) {
         <p className="small muted">Signed in as <strong>{user?.full_name || user?.username}</strong>.</p>
         <div className="row" style={{ justifyContent: 'center' }}>
           <Link className="btn btn-primary" to={homeOf(user?.role)}>{button}</Link>
-          <button className="btn" onClick={logout}>Log out</button>
+          <button className="btn" onClick={requestSignOut}>Log out</button>
         </div>
       </div>
     </div>

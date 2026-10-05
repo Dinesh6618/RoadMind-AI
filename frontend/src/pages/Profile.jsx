@@ -1,18 +1,20 @@
 import { Camera, LayoutDashboard } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useApi } from '../api'
 import { useAuth } from '../auth'
 import { Badge, Empty, ErrorBox, SeverityBadge, Spinner } from '../components'
 import { fmtDate, initials } from '../format'
 import AccountSettings from './AccountSettings'
+import MyEventReports from './report/MyEventReports'
+import './events.css'
 
-function MyReports() {
+function DamageReports() {
   const { data, loading, error, reload } = useApi('/reports/mine')
   if (loading) return <Spinner />
   if (error) return <ErrorBox error={error} onRetry={reload} />
   if (!data.items.length) {
     return (
-      <div className="card"><Empty icon={Camera}>You have not reported anything yet while signed in.<br /><Link className="btn btn-primary" style={{ marginTop: 14 }} to="/user/report">Report road damage</Link></Empty></div>
+      <div className="card"><Empty icon={Camera}>You have not submitted a pothole or crack report yet while signed in.<br /><Link className="btn btn-primary" style={{ marginTop: 14 }} to="/user/report">Report a road problem</Link></Empty></div>
     )
   }
   return (
@@ -31,12 +33,28 @@ function MyReports() {
   )
 }
 
-/** Account page for any signed-in person. Administrators also get a shortcut to the dashboard. */
-export default function Profile() {
+/** Everything this person reported: AI damage reports (potholes, cracks) and road events (flooding, accidents, blockages...). */
+function MyReports() {
+  return (
+    <div className="stack">
+      <section aria-labelledby="my-damage-h">
+        <h2 id="my-damage-h" className="ev-mine-h">Damage reports</h2>
+        <DamageReports />
+      </section>
+      <MyEventReports />
+    </div>
+  )
+}
+
+/** Account page for any signed-in person. Administrators also get a shortcut to the dashboard.
+ *  /user/profile shows it (tabs through ?tab=reports); /user/settings and /user/my-reports show the same page with that tab open. */
+export default function Profile({ tab: fixedTab = null }) {
   const { user, isAdmin, isMaintenance } = useAuth()
   const role = isAdmin ? ['Administrator', '#5b3df5', '#3c24b8'] : isMaintenance ? ['Maintenance staff', '#d97706', '#8a4a00'] : ['Normal user', '#0e8f61', '#0b6e4b']
   const [params, setParams] = useSearchParams()
-  const tab = params.get('tab') === 'reports' ? 'reports' : 'account'
+  const navigate = useNavigate()
+  const tab = fixedTab || (params.get('tab') === 'reports' ? 'reports' : 'account')
+  const openTab = (which) => (fixedTab ? navigate(which === 'reports' ? '/user/my-reports' : '/user/settings', { replace: true }) : which === 'reports' ? setParams({ tab: 'reports' }) : setParams({}))
   return (
     <div className="container page">
       <div className="profile-head">
@@ -51,8 +69,8 @@ export default function Profile() {
         {isMaintenance && <Link className="btn btn-primary" to="/maintenance/dashboard"><LayoutDashboard size={18} /> Open maintenance portal</Link>}
       </div>
       <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={tab === 'account'} className={tab === 'account' ? 'on' : ''} onClick={() => setParams({})}>Account settings</button>
-        <button role="tab" aria-selected={tab === 'reports'} className={tab === 'reports' ? 'on' : ''} onClick={() => setParams({ tab: 'reports' })}>My reports</button>
+        <button role="tab" aria-selected={tab === 'account'} className={tab === 'account' ? 'on' : ''} onClick={() => openTab('account')}>Account settings</button>
+        <button role="tab" aria-selected={tab === 'reports'} className={tab === 'reports' ? 'on' : ''} onClick={() => openTab('reports')}>My reports</button>
       </div>
       {tab === 'account' ? <AccountSettings /> : <MyReports />}
     </div>

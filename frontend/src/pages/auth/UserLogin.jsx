@@ -1,4 +1,4 @@
-import { ArrowLeft, Compass, Mail } from 'lucide-react'
+import { ArrowLeft, Mail } from 'lucide-react'
 import { useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { PORTALS, portalOf, useAuth } from '../../auth'
@@ -36,7 +36,7 @@ export default function UserLogin() {
   }
 
   return (
-    <UserLayout back="/">
+    <UserLayout back="/welcome">
       <h2>Welcome Back</h2>
       <p className="sub">Sign in to make your journeys safer.</p>
       {location.state?.notice && <Notice kind="ok">{location.state.notice}</Notice>}
@@ -60,10 +60,9 @@ export default function UserLogin() {
       <div className="or">or</div>
       <div className="stack-sm">
         <Link className="btn btn-lg btn-block btn-soft" to="/user/register">Create User Account</Link>
-        <button type="button" className="btn btn-lg btn-block" onClick={() => navigate('/user/home')}><Compass size={19} aria-hidden="true" /> Continue as Guest</button>
       </div>
-      <p className="guest-note">Guests can browse the map, search roads and plan routes. A free account is needed to submit a damage report.</p>
-      <Link className="back-link" to="/"><ArrowLeft size={16} aria-hidden="true" /> Back to Role Selection</Link>
+      <p className="guest-note">The map, route planner, emergency route and road reports are for signed-in users. Creating an account is free.</p>
+      <Link className="back-link" to="/welcome"><ArrowLeft size={16} aria-hidden="true" /> Back to Role Selection</Link>
     </UserLayout>
   )
 }

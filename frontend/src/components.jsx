@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, EyeOff, Info } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { isContentPath, previousPath } from './navHistory'
 import {
   CONDITION_LABELS, LEVEL_COLORS, LEVEL_INK, PRIORITY_COLORS, PRIORITY_INK, PRIORITY_SHORT, RISK_COLORS, RISK_INK, STATE_COLORS, STATE_INK,
   STATE_MEANING, STATE_ORDER, STATUS_LABELS,
@@ -29,16 +30,21 @@ export function Logo({ size = 38, wordmark = true, dark = false }) {
 }
 
 /**
- * "Back" - returns to the page the visitor came from. When this page was opened directly (a bookmark, a typed address,
- * a fresh tab) there is nothing to go back to, so it goes to `fallback` instead of doing nothing or leaving the site.
+ * "Back" - goes to the page the visitor really came from (real history: navigate(-1)) when this tab's own history says that page is a
+ * content page. Otherwise - a bookmark, a typed address, a fresh tab, or a previous page that was only a login / welcome screen - it goes
+ * to the page's logical parent `fallback`, so Back never throws a signed-in person back to a login screen. `to` is for pages whose "back"
+ * is one fixed place (login -> welcome, register -> login): it always goes there.
  */
-export function BackButton({ fallback = '/', label = 'Back', tone = 'light' }) {
+export function BackButton({ fallback = '/', to, label = 'Back', tone = 'light' }) {
   const navigate = useNavigate()
-  const hasHistory = (window.history.state?.idx ?? 0) > 0 // react-router numbers its own history entries
-  const goBack = () => (hasHistory ? navigate(-1) : navigate(fallback, { replace: true }))
+  const goBack = () => {
+    if (to) return navigate(to)
+    const prev = previousPath()
+    return prev && isContentPath(prev) ? navigate(-1) : navigate(fallback, { replace: true })
+  }
   return (
-    <button type="button" className={`back-btn back-${tone}`} onClick={goBack}>
-      <ArrowLeft size={18} aria-hidden="true" /> {label}
+    <button type="button" className={`back-btn back-${tone}`} onClick={goBack} aria-label={label}>
+      <ArrowLeft size={18} aria-hidden="true" /> <span>{label}</span>
     </button>
   )
 }
@@ -79,7 +85,10 @@ export function ErrorBox({ error, onRetry }) {
   return (
     <div className="alert alert-error" role="alert">
       <AlertTriangle size={18} aria-hidden="true" />
-      <span><strong>{error.message}</strong></span>
+      <span>
+        <strong>{error.message}</strong>
+        {error.info?.request_id && <small className="request-id">Request ID: {error.info.request_id}</small>}
+      </span>
       {onRetry && <button className="btn btn-small" onClick={onRetry}>Try again</button>}
     </div>
   )

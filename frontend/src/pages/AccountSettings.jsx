@@ -9,7 +9,7 @@ import { ErrorBox, Notice, PasswordInput } from '../components'
  * / password, sign out. Sensitive changes need the current password; the server enforces that.
  */
 export default function AccountSettings() {
-  const { user, setUser, adopt, logout } = useAuth()
+  const { user, setUser, adopt, signOut, requestSignOut } = useAuth()
   const [p, setP] = useState({ full_name: user.full_name || '', username: user.username, email: user.email || '', current_password: '' })
   const [pErr, setPErr] = useState(null)
   const [pOk, setPOk] = useState(null)
@@ -64,7 +64,7 @@ export default function AccountSettings() {
 
   async function signOutEverywhere() {
     if (!window.confirm('Sign out of every device, including this one?')) return
-    try { await api('/auth/logout-all', { method: 'POST' }) } finally { logout() }
+    try { await api('/auth/logout-all', { method: 'POST' }) } finally { signOut() }
   }
 
   return (
@@ -120,7 +120,7 @@ export default function AccountSettings() {
           <h3 style={{ marginBottom: 2 }}>Sessions</h3>
           <p className="muted small" style={{ margin: 0 }}>Passwords are stored only as salted Argon2 hashes - nobody, including RoadMind, can read them.</p>
           <div className="row">
-            <button className="btn" onClick={logout}><LogOut size={16} /> Log out</button>
+            <button className="btn" onClick={requestSignOut}><LogOut size={16} /> Log out</button>
             <button className="btn btn-danger" onClick={signOutEverywhere}>Sign out everywhere</button>
           </div>
         </div>

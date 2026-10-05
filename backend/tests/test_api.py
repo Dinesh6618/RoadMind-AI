@@ -429,3 +429,11 @@ def test_analytics_endpoints(client, admin_headers):
 def test_api_docs_are_served(client):
     assert client.get("/api/openapi.json").status_code == 200
     assert client.get("/api/docs").status_code == 200
+
+
+def test_the_app_shell_is_never_cached_so_the_back_button_cannot_resurrect_a_signed_in_page(client):
+    """After a logout the browser's Back button must run the route guards again; a cached or back/forward-cached app shell would skip them."""
+    shell = client.get("/user/home")
+    if shell.status_code == 200 and "text/html" in shell.headers.get("content-type", ""):  # (only when the front end has been built)
+        assert shell.headers["cache-control"] == "no-store"
+    assert "no-store" in client.get("/api/auth/me").headers.get("cache-control", "")  # account data is never cached either

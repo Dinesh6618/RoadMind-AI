@@ -48,7 +48,7 @@ export default function ForgotPassword({ portal = 'user' }) {
         </div>
         <ErrorBox error={error} />
         <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? 'Sending…' : 'Send reset link'}</button>
-        <div className="auth-links"><Link to={login}>Back to login</Link><Link to="/"><ArrowLeft size={14} aria-hidden="true" style={{ verticalAlign: '-2px' }} /> Role Selection</Link></div>
+        <div className="auth-links"><Link to={login}>Back to login</Link><Link to="/welcome"><ArrowLeft size={14} aria-hidden="true" style={{ verticalAlign: '-2px' }} /> Role Selection</Link></div>
       </form>
     </>
   )

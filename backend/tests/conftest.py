@@ -10,7 +10,7 @@ import pytest
 warnings.filterwarnings("ignore")
 # Hermetic: a developer's real .env / SMTP settings must never make a test send an email.
 os.environ["ROADMIND_ENV_FILE"] = ""
-for _name in [n for n in os.environ if n.startswith("ROADMIND_SMTP")]:
+for _name in [n for n in os.environ if n.startswith(("ROADMIND_SMTP", "GOOGLE_MAPS"))]:  # (nor may a developer's Google keys make a test call Google)
     del os.environ[_name]
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))

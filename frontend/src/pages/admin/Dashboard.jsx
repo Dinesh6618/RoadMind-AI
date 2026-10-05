@@ -22,6 +22,7 @@ export default function Dashboard() {
   const ov = useAdminApi('/analytics/overview')
   const dmg = useAdminApi('/analytics/damage')
   const top = useAdminApi('/maintenance/priorities?sort=priority&order=desc')
+  const pendingEvents = useAdminApi('/road-events?verification=PENDING&limit=1') // a small tile only: nothing is shown if this request fails
   if (ov.loading) return <Spinner />
   if (ov.error) return <ErrorBox error={ov.error} onRetry={ov.reload} />
   const o = ov.data
@@ -42,6 +43,17 @@ export default function Dashboard() {
         <Stat icon={Hourglass} label="Pending Maintenance" value={num(o.pending_maintenance)} color="#a855f7" hint="not completed, excl. Monitor" />
         <Stat icon={EyeOff} label="No RoadMind Data" value={num(o.by_state.UNKNOWN || 0)} color={STATE_COLORS.UNKNOWN} hint="shown in gray, not scored good or bad" />
       </div>
+
+      {Number.isFinite(pendingEvents.data?.total) && (
+        <Link to="/admin/events" className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px', margin: '16px 0', textDecoration: 'none', color: 'inherit' }}>
+          <span aria-hidden="true" style={{ fontSize: '1.5rem', lineHeight: 1 }}>🚧</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <b style={{ display: 'block' }}>Road events awaiting review: {num(pendingEvents.data.total)}</b>
+            <span className="small muted">Community reports that nobody has verified or rejected yet</span>
+          </span>
+          <span className="btn btn-small btn-soft">Review</span>
+        </Link>
+      )}
 
       <div className="grid chart-row">
         <ChartCard title="Road Condition Overview" hint="Every road in the network, including those RoadMind has no data for.">

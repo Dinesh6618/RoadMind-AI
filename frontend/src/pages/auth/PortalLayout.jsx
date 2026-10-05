@@ -12,7 +12,7 @@ export default function PortalLayout({ title, subtitle, back, children }) {
       <div className="portal-bg" aria-hidden="true" />
       <header className="portal-top">
         <div className="portal-top-left">
-          {back && <BackButton tone="dark" fallback={back} />}
+          {back && <BackButton tone="dark" to={back} />}
           <Link to="/" aria-label="RoadMind AI - back to role selection" className="portal-brand"><Logo dark /><small>ADMINISTRATION PORTAL</small></Link>
         </div>
         <span className="portal-chip"><ShieldCheck size={14} aria-hidden="true" /> Authorized access</span>

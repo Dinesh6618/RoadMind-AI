@@ -112,6 +112,59 @@ routing:
     moderate: 0.50
     high: 0.70
 
+# Google Maps Platform. The KEYS are never stored here - put them in the git-ignored .env file or the environment:
+#   GOOGLE_MAPS_API_KEY=...       server key, Routes API (traffic-aware routing). Never sent to a browser.
+#   GOOGLE_MAPS_JS_API_KEY=...    browser key, Maps JavaScript API (the map + live traffic layer). Restrict it by HTTP referrer.
+# Without them RoadMind still works: OpenStreetMap map tiles, RoadMind's own routing, and "Live traffic unavailable".
+google:
+  routing_preference: TRAFFIC_AWARE_OPTIMAL   # TRAFFIC_AWARE is faster and cheaper, TRAFFIC_AWARE_OPTIMAL the most accurate
+  timeout_s: 10
+  max_requests_per_hour: 1200    # cost guard: at this many Google calls per hour RoadMind falls back to its own routing (0 = no limit)
+  max_routes: 3                  # the best route plus alternatives, at most this many in all
+  region_code: ""                # optional, e.g. IN
+
+# Road events: blockages, closures, construction, accidents, flooding, severe damage. Every event expires.
+events:
+  default_radius_m: 50           # a route must pass this close to an event point for the event to count
+  pending_hours: 12              # an unverified community report stops counting after this long
+  max_hours: 720
+  refresh_seconds: 60            # how often the map refreshes events and RoadMind conditions
+  default_hours:                 # how long an event lasts when nobody says
+    ROAD_BLOCKED: 6
+    ROAD_CLOSED: 12
+    TEMPORARY_CLOSURE: 6
+    CONSTRUCTION: 24
+    ACCIDENT: 3
+    FLOODED: 12
+    SEVERE_DAMAGE: 72
+
+# RoadMind Route Risk Score (0-100, lower is better) used by POST /api/routes/calculate:
+#   risk = traffic*w + road_damage*w + predicted_damage*w + blockage*w      (unavailable parts are left out and the rest re-normalised)
+route_risk:
+  weights: {traffic: 0.30, road_damage: 0.25, predicted_damage: 0.15, blockage: 0.30}
+  avoid_threshold: 70            # at/above this (and clearly worse than the best route) a route is marked AVOID
+  margin: 5
+  time_weight: 10                # tie-breaker so a much slower route is not recommended on equal risk
+  unverified_blockage_risk: 35   # an unverified community report only nudges the score
+  event_risk: {ROAD_BLOCKED: 100, ROAD_CLOSED: 100, TEMPORARY_CLOSURE: 100, FLOODED: 85, ACCIDENT: 70, CONSTRUCTION: 60, SEVERE_DAMAGE: 50}
+  hard_block_types: [ROAD_BLOCKED, ROAD_CLOSED, TEMPORARY_CLOSURE]   # a VERIFIED live event of these makes a route AVOID
+  speed_risk: {NORMAL: 0, SLOW: 55, TRAFFIC_JAM: 100}               # per Google speed reading along the route
+  delay_reference: 0.5           # travel time 50 % above free flow counts as the maximum delay risk
+  delay_share: 0.4
+
+# Emergency Route Mode (/user/emergency-route). A route with a VERIFIED live closure is never recommended; the rest are ranked by
+# the Emergency Route Score (lower is better). Unavailable parts (for example traffic without Google) are left out, not invented.
+emergency:
+  weights: {travel_time: 0.45, traffic: 0.20, road_damage: 0.15, flood: 0.10, other: 0.10}
+  detour_reference: 0.5          # 50 % slower than the fastest route = the maximum travel-time score
+  high_risk_threshold: 60
+  nearby_radius_m: 15000
+  nearby_limit: 5
+  eta_places: 5                  # nearest places that get a real travel time
+  cache_seconds: 600
+  status_interval_s: 60          # active route vs road events (database only)
+  reroute_interval_s: 180        # active route traffic refresh (one Google call)
+
 map:
   # Base-map picture under the road network. The roads are drawn by RoadMind and never depend on it.
   # tile.openstreetmap.org is a shared volunteer service with a usage policy

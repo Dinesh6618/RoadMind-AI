@@ -1,221 +1,238 @@
-import { Camera, MapPin, Navigation, Search, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as ChartTip, XAxis, YAxis } from 'recharts'
-import { api, useApi } from '../api'
-import { ConditionLegend, Disclaimer, ErrorBox, FactorBars, Notice, PriorityBadge, RiskBadge, SeverityBadge, SeverityMeter, Spinner, StateBadge, StatusBadge } from '../components'
-import { CONDITION_LABELS, STATE_COLORS, STATE_INK, fmtDate, highwayLabel, num, timeAgo } from '../format'
-import NetworkMap, { LocateControl } from '../NetworkMap'
+import { TriangleAlert, Info } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { api } from '../api'
+import { useAuth } from '../auth'
+import { STATE_COLORS } from '../format'
+import { useHistoryLevel } from '../navHistory'
+import MapCanvas from '../maps/MapCanvas'
+import MapStatusBar from '../maps/MapStatusBar'
+import { useMapConfig } from '../maps/useMapConfig'
+import DetailDrawer from './roadmap/DetailDrawer'
+import LayersBox from './roadmap/LayersBox'
+import PlaceSearch from './roadmap/PlaceSearch'
+import { hasGeocoder, reverseGeocodeRoad } from './roadmap/geocode'
+import { eventAppliesToRoad, eventsNear, inBounds } from './roadmap/geo'
+import { conditionOverlays, eventOverlays, highlightOverlay, pinOverlay } from './roadmap/overlays'
+import { EventPanel, LookupPanel, NoDataPanel, RoadPanel } from './roadmap/panels'
+import { resolveRoadItem } from './roadmap/roadItem'
+import { useRoadMindData } from './roadmap/useRoadMindData'
+import './roadmap.css'
 
-const FILTERS = [[null, 'All Roads'], ['GOOD', 'Good'], ['MODERATE', 'Moderate'], ['HIGH_RISK', 'High Risk'], ['CRITICAL', 'Critical'], ['UNKNOWN', 'No Data']]
+const FILTERS = [[null, 'All'], ['GOOD', 'Good'], ['MODERATE', 'Moderate'], ['HIGH_RISK', 'High Risk'], ['CRITICAL', 'Critical']]
+const NOTE_UNAVAILABLE = 'RoadMind condition data temporarily unavailable.'
+const NOTE_EVENTS_UNAVAILABLE = 'RoadMind road events temporarily unavailable.'
+const NOTE_EMPTY = 'No RoadMind condition data available in this area.'
+const LOOKUP_TIMEOUT_MS = 8000
 
-/** Detail records and network segments use slightly different field names; the card reads either. */
-const sevOf = (s) => s.severity ?? s.current_severity
-
-function RoadCard({ seg, at, onClose, onDetails }) {
-  const navigate = useNavigate()
-  const unknown = seg.state === 'UNKNOWN'
-  const here = at || { lat: seg.geometry?.[0]?.[0], lng: seg.geometry?.[0]?.[1] }
-  const getRoute = () => navigate(`/user/routes?toLat=${here.lat.toFixed(6)}&toLng=${here.lng.toFixed(6)}&toName=${encodeURIComponent(seg.name)}`)
-  return (
-    <aside className="map-ui road-card glass" aria-label={`Road: ${seg.name}`}>
-      <button className="btn btn-icon btn-ghost close btn-small" onClick={onClose} aria-label="Close"><X size={18} /></button>
-      <h3>{seg.name}</h3>
-      <div className="muted small">{highwayLabel(seg.highway)} · {num(seg.length_m)} m{seg.oneway ? ' · one-way' : ''}</div>
-      <div className="cond" style={{ '--c': STATE_COLORS[seg.state], '--ink-c': STATE_INK[seg.state] }}>
-        <i /> Condition: {CONDITION_LABELS[seg.state]}
-      </div>
-      {unknown ? (
-        <p className="small" style={{ marginBottom: 14 }}>
-          RoadMind does not currently have sufficient condition data for this road. It is not rated good or damaged. <b>You can report road damage.</b>
-        </p>
-      ) : (
-        <div className="facts">
-          <div className="fact"><span>Severity</span><b>{sevOf(seg)}/100</b></div>
-          <div className="fact"><span>Damage</span><b>{seg.damage_type || 'None recorded'}</b></div>
-          <div className="fact"><span>Reports</span><b>{seg.report_count}</b></div>
-          <div className="fact"><span>Last Report</span><b>{fmtDate(seg.last_report_at)}</b></div>
-          <div className="fact"><span>Predicted Risk</span><b>{seg.risk_percent != null ? `${seg.risk_percent}%` : '—'}</b></div>
-          <div className="fact"><span>Maintenance</span><b>{(seg.priority_category || '—').toUpperCase()}{seg.maintenance_status_label ? ` · ${seg.maintenance_status_label}` : ''}</b></div>
-          {seg.simulated && <div className="small" style={{ color: 'var(--moderate-ink)' }}>Simulated demo data - not a real observation.</div>}
-        </div>
-      )}
-      <div className="actions">
-        {unknown ? (
-          <button className="btn btn-primary" onClick={() => navigate(`/user/report?lat=${here.lat.toFixed(6)}&lng=${here.lng.toFixed(6)}&road=${encodeURIComponent(seg.name)}`)}><Camera size={17} /> Report damage</button>
-        ) : (
-          <button className="btn btn-primary" onClick={() => onDetails(seg)}>View Details</button>
-        )}
-        <button className="btn" onClick={getRoute}><Navigation size={17} /> Get Route</button>
-      </div>
-    </aside>
-  )
-}
-
-/** `portal` is "admin" or "maintenance" inside the staff portals (it changes the extras shown), null on the public map. */
-function DetailDrawer({ id, portal, onClose }) {
-  const admin = portal === 'admin'
-  const { data: d, loading, error } = useApi(`/roads/${id}`)
-  const history = (d?.history || []).map((h) => ({ date: new Date(h.date).getTime(), severity: h.severity }))
-  return (
-    <div className="drawer-panel" role="dialog" aria-label="Road details">
-      <div className="row between" style={{ alignItems: 'flex-start', marginBottom: 14 }}>
-        <div><h2 style={{ marginBottom: 2 }}>{d?.name || 'Road details'}</h2>{d && <div className="muted small">{d.zone} · {highwayLabel(d.highway)} · {Math.round(d.length_m)} m</div>}</div>
-        <button className="btn btn-icon btn-ghost btn-small" onClick={onClose} aria-label="Close details"><X size={18} /></button>
-      </div>
-      {loading && <Spinner />}
-      <ErrorBox error={error} />
-      {d && (
-        <div className="stack">
-          <div className="row"><StateBadge state={d.state} />{d.simulated && <span className="badge" style={{ '--c': '#b7791f', '--ink-c': '#8a5a00' }}>simulated data</span>}</div>
-          {d.has_data && <SeverityMeter score={d.current_severity} level={d.severity_level} />}
-          <dl className="kv">
-            <dt>Damage type</dt><dd>{d.damage_type || 'None recorded'}</dd>
-            <dt>Number of reports</dt><dd>{d.report_count} ({d.reports_90d} in 90 days)</dd>
-            <dt>Last report</dt><dd>{d.last_report_at ? `${fmtDate(d.last_report_at)} (${timeAgo(d.last_report_at)})` : 'none'}</dd>
-            <dt>Predicted risk</dt><dd><RiskBadge level={d.risk_level} percent={d.risk_percent} /></dd>
-            <dt>Maintenance status</dt><dd><StatusBadge status={d.maintenance_status} /></dd>
-            <dt>Maintenance priority</dt><dd>{d.priority ? <><PriorityBadge category={d.priority.category} /> {Math.round(d.priority.score)}/100</> : '—'}</dd>
-            <dt>Last repair</dt><dd>{d.last_repair_date ? fmtDate(d.last_repair_date) : 'no record'} · {d.repair_count} on file</dd>
-            <dt>Traffic (estimate)</dt><dd>{d.traffic_level} (~{d.daily_traffic.toLocaleString()}/day)</dd>
-          </dl>
-          {d.priority && <Notice kind="info"><b>Suggested action:</b> {d.priority.action}</Notice>}
-          {d.prediction?.factors?.length > 0 && (
-            <div>
-              <h3>What drives the risk estimate</h3>
-              <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
-                {d.prediction.factors.map((f) => <li key={f.feature}>{f.label} ({f.display}) {f.effect_points >= 0 ? 'raises' : 'lowers'} risk by {Math.abs(f.effect_points).toFixed(0)} pts</li>)}
-              </ul>
-            </div>
-          )}
-          {history.length > 1 && (
-            <div>
-              <h3>Severity over time</h3>
-              <div className="sparkline">
-                <ResponsiveContainer>
-                  <LineChart data={history} margin={{ top: 6, right: 10, bottom: 0, left: -18 }}>
-                    <CartesianGrid stroke="#ece9fa" vertical={false} />
-                    <XAxis dataKey="date" type="number" domain={['dataMin', 'dataMax']} tickFormatter={(t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} fontSize={11} />
-                    <YAxis domain={[0, 100]} fontSize={11} />
-                    <ChartTip labelFormatter={(t) => new Date(t).toLocaleDateString()} formatter={(v) => [Math.round(v), 'Severity']} />
-                    <Line type="monotone" dataKey="severity" stroke="#5b3df5" strokeWidth={2.5} dot={{ r: 2 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-          {d.recent_reports.length > 0 && (
-            <div>
-              <h3>Recent reports</h3>
-              <div className="table-wrap">
-                <table className="data">
-                  <tbody>
-                    {d.recent_reports.slice(0, 5).map((r) => (
-                      <tr key={r.id}>
-                        <td className="nowrap">{fmtDate(r.reported_at)}</td>
-                        <td>{r.damage_summary}</td>
-                        <td className="right"><SeverityBadge level={r.severity_level} /></td>
-                        {admin && <td>{r.annotated_url ? <a href={r.annotated_url} target="_blank" rel="noreferrer">photo</a> : <span className="muted">—</span>}</td>}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          {admin && d.priority?.notes && <div><h3>Notes</h3><div className="note-log">{d.priority.notes}</div></div>}
-          {admin && <Link className="btn" to={`/admin/maintenance?road=${id}`}>Manage in Maintenance</Link>}
-          {portal === 'maintenance' && <Link className="btn" to={`/maintenance/roads?road=${id}`}>Open in my work list</Link>}
-          <Disclaimer>{d.disclaimer} Age, traffic and rainfall are estimates from the road class.</Disclaimer>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function PlaceSearch({ onPick }) {
-  const [q, setQ] = useState('')
-  const [hits, setHits] = useState([])
-  const [open, setOpen] = useState(false)
-  useEffect(() => {
-    if (q.trim().length < 2) { setHits([]); return }
-    const t = setTimeout(() => api(`/routes/geocode?q=${encodeURIComponent(q.trim())}`).then(setHits).catch(() => setHits([])), 300)
-    return () => clearTimeout(t)
-  }, [q])
-  return (
-    <div className="search-wrap place-input">
-      <div className="search-pill glass">
-        <Search size={19} aria-hidden="true" />
-        <input placeholder="Search a place or road…" aria-label="Search for a place" value={q} onChange={(e) => { setQ(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)} />
-        {q && <button className="btn btn-icon btn-ghost btn-small" onClick={() => { setQ(''); setHits([]) }} aria-label="Clear search"><X size={16} /></button>}
-      </div>
-      {open && hits.length > 0 && (
-        <div className="suggest" role="listbox">
-          {hits.map((h) => (
-            <button type="button" key={`${h.name}${h.lat}`} onClick={() => { onPick({ lat: h.lat, lng: h.lng, zoom: 17 }); setQ(h.name); setOpen(false) }}>
-              <MapPin size={14} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 6, color: 'var(--brand)' }} />{h.name}<small>{h.source === 'osm' ? 'OpenStreetMap search' : h.kind}</small>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
+/**
+ * The map page (/user/map, /admin/map, /maintenance/map).
+ * The real-world road network and live traffic come from the map itself (Google Maps, or OpenStreetMap tiles without a
+ * key). RoadMind only adds overlays on top - road condition lines and road events - so the map is complete with zero
+ * RoadMind records and keeps working when the RoadMind API fails.
+ * `portal` is "admin" or "maintenance" inside the staff portals (the map then fills the content area), null on the public map.
+ */
 export default function RoadMapPage({ portal = null }) {
-  const staff = !!portal // inside the administrator / maintenance portals the map fills the content area
+  const staff = !!portal
   const [params] = useSearchParams()
-  const [selected, setSelected] = useState(null) // { seg, at }
-  const [drawerId, setDrawerId] = useState(null)
-  const [focus, setFocus] = useState(null)
-  const [pan, setPan] = useState(null)
-  const [data, setData] = useState(null)
-  const [toast, setToast] = useState(null)
+  const auth = useAuth()
+  const staffRole = portal || (auth?.isAdmin ? 'admin' : auth?.isMaintenance ? 'maintenance' : null)
+  const { config } = useMapConfig()
+  const mapRef = useRef(null)
 
-  // Deep link from a report result: /map?focus=<road id>&lat=&lng=
-  useEffect(() => {
-    const id = params.get('focus')
-    const lat = parseFloat(params.get('lat')), lng = parseFloat(params.get('lng'))
-    if (Number.isFinite(lat) && Number.isFinite(lng)) setPan({ lat, lng, zoom: 17 })
-    if (id) {
-      api(`/roads/${id}`).then((d) => setSelected({ seg: d, at: Number.isFinite(lat) ? { lat, lng } : null })).catch(() => {})
+  const [status, setStatus] = useState(null) // from MapCanvas.onStatus
+  const [focus, setFocus] = useState(null) // condition filter chip
+  const [showConditions, setShowConditions] = useState(true)
+  const [showEvents, setShowEvents] = useState(true)
+  const [selection, setSelection] = useState(null) // { kind: 'road'|'event'|'nodata'|'lookup', at, ... }
+  const [drawer, setDrawer] = useState(null) // { id, item }
+  const [searchPin, setSearchPin] = useState(null)
+
+  const { cond, ev, load } = useRoadMindData(config.refresh_seconds)
+  const itemsRef = useRef([])
+  itemsRef.current = cond.items
+  const lookup = useRef(null) // AbortController of the click lookup in flight
+
+  // ------------------------------------------------------------------------------------------ what the person picked
+  const openRoad = useCallback((item, at) => {
+    lookup.current?.abort()
+    setDrawer(null)
+    setSelection({ kind: 'road', item, at: at || null })
+  }, [])
+
+  const openEvent = useCallback((event, at) => {
+    lookup.current?.abort()
+    setDrawer(null)
+    setSelection({ kind: 'event', event, at: at || { lat: event.lat, lng: event.lng } })
+  }, [])
+
+  const close = useCallback(() => { lookup.current?.abort(); setSelection(null) }, [])
+
+  // Road details are part of the browser history: the phone / browser Back button closes the details drawer, then the road panel,
+  // and only then leaves the map (Home -> Map -> Road details: Back, Back, Back retraces it).
+  useHistoryLevel(drawer ? 2 : selection ? 1 : 0, (level) => {
+    if (level < 2) setDrawer(null)
+    if (level < 1) { lookup.current?.abort(); setSelection(null) }
+  })
+
+  /** A click on the base map or a base road (not on a RoadMind overlay): is there a RoadMind road under it? */
+  const onMapClick = useCallback(async (at) => {
+    if (!at) return
+    lookup.current?.abort()
+    const ctl = new AbortController()
+    lookup.current = ctl
+    setDrawer(null)
+    setSearchPin(null)
+    setSelection({ kind: 'lookup', at })
+
+    // A lookup that hangs must not leave "Checking this road…" on screen: after a while it ends as "unavailable".
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; ctl.abort() }, LOOKUP_TIMEOUT_MS)
+    const cancelled = () => ctl.signal.aborted && !timedOut // the person clicked somewhere else
+    let match = null
+    let failed = false
+    try {
+      match = await api(`/network/match?lat=${at.lat}&lng=${at.lng}&radius=30`, { signal: ctl.signal })
+    } catch (err) {
+      if (cancelled() || (err?.name === 'AbortError' && !timedOut)) { clearTimeout(timer); return }
+      failed = true
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (cancelled()) { clearTimeout(timer); return }
 
-  const counts = data?.counts || {}
+    if (!failed && match?.matched && match.state && match.state !== 'UNKNOWN') {
+      try {
+        const item = await resolveRoadItem(match.road_id, match.midpoint, itemsRef.current, ctl.signal)
+        if (cancelled()) { clearTimeout(timer); return }
+        if (item) { clearTimeout(timer); setSelection({ kind: 'road', item, at }); return }
+      } catch (err) {
+        if (cancelled() || (err?.name === 'AbortError' && !timedOut)) { clearTimeout(timer); return }
+        failed = true
+      }
+    }
+    clearTimeout(timer)
+    if (timedOut) lookup.current = null // nothing left to cancel
+
+    // No RoadMind condition data under this point: say so, never colour it good or damaged.
+    const dbName = match?.matched && match.name && !/^unnamed/i.test(match.name) ? match.name : null
+    const geocoder = hasGeocoder()
+    setSelection({ kind: 'nodata', at, name: geocoder ? null : dbName, resolving: geocoder, unavailable: failed })
+    if (!geocoder) return
+    const googleName = await reverseGeocodeRoad(at.lat, at.lng, 1500)
+    if (lookup.current !== ctl && !timedOut) return // another click replaced this one
+    setSelection((s) => (s && s.kind === 'nodata' && s.at === at ? { ...s, name: googleName || dbName, resolving: false } : s))
+  }, [])
+
+  // Deep link from a report result: ?focus=<road id>&lat=&lng=   (the map itself starts centred there)
+  const deep = useMemo(() => {
+    const lat = parseFloat(params.get('lat')), lng = parseFloat(params.get('lng'))
+    return { id: params.get('focus'), at: Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!deep.id && !deep.at) return undefined
+    const ctl = new AbortController()
+    ;(async () => {
+      try {
+        const item = deep.id ? await resolveRoadItem(deep.id, deep.at, [], ctl.signal).catch((e) => { if (e?.name === 'AbortError') throw e; return null }) : null
+        if (ctl.signal.aborted) return
+        if (item) setSelection({ kind: 'road', item, at: deep.at })
+      } catch { /* aborted */ }
+    })()
+    return () => ctl.abort()
+  }, [deep])
+
+  // Escape closes the drawer first, then the panel (the search box handles its own Escape and marks the event handled)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (drawer) setDrawer(null)
+      else if (selection) close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [drawer, selection, close])
+
+  // --------------------------------------------------------------------------------------------------- map overlays
+  const selectedItem = selection?.kind === 'road' ? selection.item : null
+  const selectedEventId = selection?.kind === 'event' ? selection.event.id : null
+  const clickedAt = selection && (selection.kind === 'nodata' || selection.kind === 'lookup') ? selection.at : null
+
+  const overlays = useMemo(() => {
+    const out = []
+    const halo = highlightOverlay(selectedItem)
+    if (halo) out.push(halo)
+    if (showConditions) out.push(...conditionOverlays(cond.items, focus, openRoad))
+    if (showEvents) out.push(...eventOverlays(ev.items, selectedEventId, openEvent))
+    if (clickedAt) out.push(pinOverlay('clicked', clickedAt))
+    if (searchPin) out.push(pinOverlay('search', searchPin, '📍'))
+    return out
+  }, [cond.items, ev.items, focus, showConditions, showEvents, selectedItem, selectedEventId, clickedAt, searchPin, openRoad, openEvent])
+
+  const onViewportChange = useCallback((vp) => load(vp), [load])
+  const onPick = useCallback((p) => {
+    setSearchPin({ lat: p.lat, lng: p.lng })
+    mapRef.current?.panTo({ lat: p.lat, lng: p.lng, zoom: p.zoom })
+  }, [])
+  const pickFilter = (state) => { setFocus(state); setShowConditions(true) }
+
+  // ------------------------------------------------------------------------------------------------- status + notices
+  const blockedCount = ev.items.filter((e) => e.is_blocking).length
+  const rmState = cond.state === 'error' || ev.state === 'error' ? 'error' : cond.state === 'loading' || ev.state === 'loading' ? 'loading' : 'ok'
+  const roadmind = { state: rmState, count: cond.items.length, blocked: blockedCount, updatedAt: cond.updatedAt || ev.updatedAt }
+  const note = cond.state === 'error' ? NOTE_UNAVAILABLE : ev.state === 'error' ? NOTE_EVENTS_UNAVAILABLE : cond.state === 'ok' && cond.items.length === 0 ? (cond.message || NOTE_EMPTY) : null
+  const simulated = cond.simulated || config.simulated_data
+
+  const center = useMemo(() => deep.at || undefined, [deep])
+  const initialZoom = deep.at ? 17 : undefined
+
+  // The selected event, kept fresh from the latest list (a snapshot when it has scrolled out of the fetched area)
+  const liveEvent = selection?.kind === 'event' ? (ev.items.find((e) => e.id === selection.event.id) || selection.event) : null
+  const eventEnded = !!(selection?.kind === 'event' && ev.state === 'ok' && inBounds(selection.event, ev.bounds) && !ev.items.some((e) => e.id === selection.event.id))
+  const applying = useMemo(() => (selectedItem ? ev.items.filter((e) => eventAppliesToRoad(e, selectedItem)) : []), [selectedItem, ev.items])
+  const fresh = selectedItem ? (cond.items.find((i) => i.id === selectedItem.id) || selectedItem) : null
+  const nearby = useMemo(() => (selection?.kind === 'nodata' ? eventsNear(ev.items, selection.at) : []), [selection, ev.items])
+
   return (
     <div className={staff ? 'admin-map' : 'map-screen'}>
-      <NetworkMap
-        height="100%" focusState={focus} selectedId={selected?.seg.id} pan={pan} onData={setData}
-        onSelect={(seg, at) => { setSelected({ seg, at }); setDrawerId(null) }}
-      >
-        <LocateControl onError={setToast} />
-      </NetworkMap>
+      <div className={`rm-stage${status?.engine === 'google' ? ' is-google' : ''}`}>
+        <MapCanvas
+          ref={mapRef} height="100%" overlays={overlays} initialCenter={center} initialZoom={initialZoom}
+          onViewportChange={onViewportChange} onMapClick={onMapClick} onStatus={setStatus}
+        >
+          <div className="map-ui rm-top">
+            <PlaceSearch onPick={onPick} />
+            <div className="filter-pills glass" role="group" aria-label="Show RoadMind roads by condition">
+              {FILTERS.map(([state, label]) => (
+                <button
+                  type="button" key={label} className={`chip ${focus === state ? 'on' : ''}`} onClick={() => pickFilter(state)} aria-pressed={focus === state}
+                  title={state ? `${cond.counts[state] || 0} in the loaded area` : undefined}
+                >
+                  {state && <i style={{ '--c': STATE_COLORS[state] }} />}{label}
+                </button>
+              ))}
+            </div>
+            <LayersBox showConditions={showConditions} showEvents={showEvents} onConditions={setShowConditions} onEvents={setShowEvents} status={status} />
+            {note && (
+              <p className={`rm-note glass${cond.state === 'error' || ev.state === 'error' ? ' is-warn' : ''}`} role="status">
+                {cond.state === 'error' || ev.state === 'error' ? <TriangleAlert size={15} aria-hidden="true" /> : <Info size={15} aria-hidden="true" />}<span>{note}</span>
+              </p>
+            )}
+            {simulated && <p className="rm-note rm-note--sim glass"><span>Demo condition data is simulated</span></p>}
+          </div>
 
-      <div className="map-ui map-top">
-        <PlaceSearch onPick={setPan} />
-        <div className="filter-pills glass" role="group" aria-label="Show roads by condition">
-          {FILTERS.map(([state, label]) => (
-            <button key={label} className={`chip ${focus === state ? 'on' : ''}`} onClick={() => setFocus(state)} aria-pressed={focus === state}
-              title={data && state ? `${counts[state] || 0} in the loaded area` : undefined}>
-              {state && <i style={{ '--c': STATE_COLORS[state] }} />}{label}
-            </button>
-          ))}
-        </div>
+          <MapStatusBar status={status} roadmind={roadmind} className={selection ? 'rm-hide-sm' : ''} />
+
+          {selection?.kind === 'lookup' && <LookupPanel key="lookup" onClose={close} />}
+          {selection?.kind === 'road' && !drawer && (
+            <RoadPanel key={`road-${fresh.id}`} item={fresh} applying={applying} status={status} at={selection.at} onClose={close} onDetails={(item) => setDrawer({ id: item.id, item })} onOpenEvent={(e) => openEvent(e)} />
+          )}
+          {selection?.kind === 'event' && <EventPanel key={`event-${liveEvent.id}`} ev={liveEvent} ended={eventEnded} staffRole={staffRole} onClose={close} />}
+          {selection?.kind === 'nodata' && (
+            <NoDataPanel key={`nodata-${selection.at.lat}-${selection.at.lng}`} at={selection.at} name={selection.name} resolving={selection.resolving} unavailable={selection.unavailable} nearby={nearby} onClose={close} onOpenEvent={(e) => openEvent(e)} />
+          )}
+        </MapCanvas>
       </div>
 
-      <div className="map-ui map-legend glass"><ConditionLegend /></div>
-
-      {toast && (
-        <div className="map-ui" style={{ top: 140, left: 16, maxWidth: 380 }}>
-          <Notice kind="warn">{toast} <button className="btn btn-small btn-ghost" onClick={() => setToast(null)}>OK</button></Notice>
-        </div>
-      )}
-
-      {selected && !drawerId && (
-        <RoadCard seg={selected.seg} at={selected.at} onClose={() => setSelected(null)} onDetails={(s) => setDrawerId(s.id)} />
-      )}
-      {drawerId && <DetailDrawer key={drawerId} id={drawerId} portal={portal} onClose={() => setDrawerId(null)} />}
+      {drawer && <DetailDrawer key={drawer.id} id={drawer.id} item={drawer.item} portal={portal} status={status} blocking={ev.items.filter((e) => e.is_blocking && eventAppliesToRoad(e, drawer.item))} onClose={() => setDrawer(null)} />}
     </div>
   )
 }

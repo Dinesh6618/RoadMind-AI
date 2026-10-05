@@ -213,3 +213,16 @@
 .back-dark:focus-visible { outline-color: #fff; }
 .portal-top-left { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; min-width: 0; }
 .welcome-back { margin-bottom: -4px; }
+
+/* ---------- confirmation dialog + compact Back button on phones ---------- */
+.dlg-backdrop { position: fixed; inset: 0; z-index: 5000; display: grid; place-items: center; padding: 20px; background: rgba(15, 26, 60, 0.55); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.dlg { width: min(100%, 400px); background: #fff; color: var(--ink); border-radius: 22px; padding: 26px; box-shadow: 0 30px 80px -20px rgba(7, 12, 36, 0.6); }
+.dlg h2 { font-size: 1.25rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+.dlg p { margin: 0 0 20px; color: var(--ink-2); }
+.dlg-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.dlg-actions .btn { min-height: 46px; }
+.topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+@media (max-width: 640px) {
+  .topbar-left .back-btn { padding: 0; width: 42px; justify-content: center; }
+  .topbar-left .back-btn span { display: none; }
+}

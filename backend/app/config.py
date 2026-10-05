@@ -125,6 +125,84 @@ class AuthConfig:
 
 
 @dataclass
+class GoogleConfig:
+    """Google Maps Platform settings (not secrets). The KEYS come only from the environment / the git-ignored `.env`:
+
+      GOOGLE_MAPS_API_KEY       server key - the Routes API, called by the backend only, never sent to a browser
+      GOOGLE_MAPS_JS_API_KEY    browser key for the Maps JavaScript API (restrict it by HTTP referrer in Google Cloud);
+                                alias GOOGLE_MAPS_MAPS_JS_API_KEY. (The front end can also take VITE_GOOGLE_MAPS_API_KEY.)
+    """
+
+    routes_url: str = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    matrix_url: str = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"  # travel times to several places at once
+    places_url: str = "https://places.googleapis.com/v1/places:searchNearby"  # Places API (New): hospitals, fire stations, police
+    routing_preference: str = "TRAFFIC_AWARE_OPTIMAL"  # TRAFFIC_AWARE (faster, cheaper) | TRAFFIC_AWARE_OPTIMAL
+    timeout_s: float = 10
+    # Cost guard: every Google call is billed and the routing endpoints are public. When this many calls have been made in the last hour
+    # RoadMind stops calling Google (routes fall back to its own routing, "live traffic temporarily unavailable") until the window clears.
+    max_requests_per_hour: int = 1200  # 0 = no limit
+    max_routes: int = 3  # Google returns the best route plus up to this many alternatives in total
+    region_code: str = ""  # optional CLDR region bias, e.g. "IN"
+
+
+@dataclass
+class EventsConfig:
+    """Road events (blockages, closures, construction...). Nothing is blocked for ever: every event expires."""
+
+    default_radius_m: float = 50  # how close a route must pass to an event point for the event to count
+    max_radius_m: float = 500
+    # how long an event lasts when nobody says (hours); verified staff can set their own expiry
+    default_hours: dict[str, float] = field(
+        default_factory=lambda: {
+            "ROAD_BLOCKED": 6, "ROAD_CLOSED": 12, "TEMPORARY_CLOSURE": 6, "CONSTRUCTION": 24, "ACCIDENT": 3, "FLOODED": 12, "SEVERE_DAMAGE": 72, "ROAD_REOPENED": 2,
+        }
+    )
+    max_hours: float = 24 * 30
+    pending_hours: float = 12  # an unverified community report stops counting after this long unless staff verify it
+    refresh_seconds: int = 60  # how often the map asks for events / conditions again
+
+
+@dataclass
+class RouteRiskConfig:
+    """RoadMind Route Risk Score (0-100, lower is better) =
+         traffic*w_traffic + road_damage*w_road_damage + predicted_damage*w_predicted + blockage*w_blockage
+    Components that are unavailable (for example live traffic without a Google key) are left out and the remaining
+    weights are re-normalised - they are never invented."""
+
+    weights: dict[str, float] = field(default_factory=lambda: {"traffic": 0.30, "road_damage": 0.25, "predicted_damage": 0.15, "blockage": 0.30})
+    avoid_threshold: float = 70  # a route at or above this risk (and clearly worse than the best) is marked AVOID
+    margin: float = 5  # "clearly worse" = this many points above the best route
+    time_weight: float = 10  # tie-breaker: up to this many points are added for a route much slower than the fastest one
+    unverified_blockage_risk: float = 35  # a community report nobody has verified yet only nudges the score
+    # blockage risk of a VERIFIED active event on the route, by type (a blocked / closed road is 100)
+    event_risk: dict[str, float] = field(
+        default_factory=lambda: {"ROAD_BLOCKED": 100, "ROAD_CLOSED": 100, "TEMPORARY_CLOSURE": 100, "FLOODED": 85, "ACCIDENT": 70, "CONSTRUCTION": 60, "SEVERE_DAMAGE": 50}
+    )
+    hard_block_types: list[str] = field(default_factory=lambda: ["ROAD_BLOCKED", "ROAD_CLOSED", "TEMPORARY_CLOSURE"])
+    # traffic risk of a stretch by Google's speed reading (SLOW / TRAFFIC_JAM come from TRAFFIC_ON_POLYLINE)
+    speed_risk: dict[str, float] = field(default_factory=lambda: {"NORMAL": 0, "SLOW": 55, "TRAFFIC_JAM": 100})
+    delay_reference: float = 0.5  # travel time 50 % above free-flow counts as the maximum delay risk
+    delay_share: float = 0.4  # traffic risk = (1-share)*congested-length risk + share*delay risk
+
+
+@dataclass
+class EmergencyConfig:
+    """Emergency Route Mode. A route with a VERIFIED live closure is never recommended (hard rule, not a weight). The rest are ranked by
+    the Emergency Route Score (0-100, lower is better) = the weighted mean of these parts; unavailable parts are left out and the
+    remaining weights re-normalised - so the shortest route does not automatically win, and nothing is invented."""
+
+    weights: dict[str, float] = field(default_factory=lambda: {"travel_time": 0.45, "traffic": 0.20, "road_damage": 0.15, "flood": 0.10, "other": 0.10})
+    detour_reference: float = 0.5  # a route 50 % slower than the fastest counts as the maximum travel-time score (100)
+    high_risk_threshold: float = 60  # RoadMind risk at/above this is flagged "high road risk"
+    nearby_radius_m: float = 15000  # how far to look for hospitals / fire stations / police stations
+    nearby_limit: int = 5  # how many places are returned
+    eta_places: int = 5  # for how many of the nearest places a travel time is computed (each is one billable matrix element on Google)
+    cache_seconds: int = 600  # nearby-place lookups are cached this long (also keeps OpenStreetMap's Overpass service friendly)
+    status_interval_s: int = 60  # how often an active route is checked against road events (DB only, no Google call)
+    reroute_interval_s: int = 180  # how often an active route's traffic is refreshed (one Google call)
+
+
+@dataclass
 class EmailConfig:
     """Outgoing mail (verification, invitations, password resets). With no smtp_host the message is written to
     data/outbox/ and the server log instead of being sent (links are never shown in the web page). The SMTP password
@@ -151,6 +229,10 @@ class Settings:
     uploads: UploadConfig
     auth: AuthConfig
     email: EmailConfig
+    google: GoogleConfig
+    events: EventsConfig
+    route_risk: RouteRiskConfig
+    emergency: EmergencyConfig
     data_dir: Path
     media_dir: Path
     database_url: str
@@ -159,6 +241,11 @@ class Settings:
     frontend_dist: Path
     sample_dir: Path
     seed_demo_data: bool = True
+    google_api_key: str = ""  # server key (Routes API); never sent to the browser
+    google_js_api_key: str = ""  # browser key (Maps JavaScript API); referrer-restricted, handed to the page by /api/map/config
+    # Browser origins allowed to call the API directly (only matters when the front end is NOT served by this server
+    # and does not use the Vite proxy, e.g. VITE_API_URL pointing here). Never "*": ROADMIND_CORS_ORIGINS adds more.
+    cors_origins: list[str] = field(default_factory=list)
 
     def resolve(self, path: str) -> Path:
         p = Path(path)
@@ -179,7 +266,7 @@ def read_dotenv(path: Path) -> dict[str, str]:
         key, value = key.strip(), value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
             value = value[1:-1]
-        if key.startswith("ROADMIND_"):
+        if key.startswith(("ROADMIND_", "GOOGLE_MAPS_")):
             values[key] = value
     return values
 
@@ -227,6 +314,10 @@ def load_settings(overrides: dict[str, Any] | None = None) -> Settings:
 
     db_url = overrides.get("database_url") or env.get("ROADMIND_DATABASE_URL") or f"sqlite:///{(data_dir / 'roadmind.db').as_posix()}"
 
+    # Vite uses 5173 and moves up one port at a time when it is taken (another project, a second terminal...)
+    cors = [f"http://{host}:{port}" for port in range(5173, 5178) for host in ("localhost", "127.0.0.1")]
+    cors += [o.strip().rstrip("/") for o in env.get("ROADMIND_CORS_ORIGINS", "").split(",") if o.strip() and o.strip() != "*"]
+
     return Settings(
         detection=from_dict(DetectionConfig, raw.get("detection")),
         severity=from_dict(SeverityConfig, raw.get("severity")),
@@ -240,6 +331,10 @@ def load_settings(overrides: dict[str, Any] | None = None) -> Settings:
         uploads=from_dict(UploadConfig, raw.get("uploads")),
         auth=from_dict(AuthConfig, {**(raw.get("auth") or {}), **(overrides.get("auth") or {})}),
         email=from_dict(EmailConfig, email_raw),
+        google=from_dict(GoogleConfig, {**(raw.get("google") or {}), **(overrides.get("google") or {})}),
+        events=from_dict(EventsConfig, {**(raw.get("events") or {}), **(overrides.get("events") or {})}),
+        route_risk=from_dict(RouteRiskConfig, {**(raw.get("route_risk") or {}), **(overrides.get("route_risk") or {})}),
+        emergency=from_dict(EmergencyConfig, {**(raw.get("emergency") or {}), **(overrides.get("emergency") or {})}),
         data_dir=data_dir,
         media_dir=media_dir,
         database_url=db_url,
@@ -248,4 +343,7 @@ def load_settings(overrides: dict[str, Any] | None = None) -> Settings:
         frontend_dist=REPO_ROOT / "frontend" / "dist",
         sample_dir=REPO_ROOT / "data" / "sample_images",
         seed_demo_data=bool(overrides.get("seed_demo_data", env.get("ROADMIND_SEED_DEMO", "1") != "0")),
+        google_api_key=str(overrides.get("google_api_key", env.get("GOOGLE_MAPS_API_KEY", ""))).strip(),
+        google_js_api_key=str(overrides.get("google_js_api_key", env.get("GOOGLE_MAPS_JS_API_KEY") or env.get("GOOGLE_MAPS_MAPS_JS_API_KEY") or "")).strip(),
+        cors_origins=cors,
     )

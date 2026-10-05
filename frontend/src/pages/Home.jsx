@@ -4,6 +4,7 @@ import { useApi } from '../api'
 import { ConditionLegend } from '../components'
 import { num } from '../format'
 import HeroScene from '../HeroScene'
+import EmergencyLink from './emergency/EmergencyLink'
 
 const FEATURES = [
   [ScanSearch, 'Detect Damage', 'Upload a photo and the AI outlines potholes, cracks and surface damage in seconds, with a confidence score for each.'],
@@ -32,6 +33,7 @@ export default function Home() {
               <div className="hero-actions">
                 <Link className="btn btn-primary btn-lg" to="/user/report"><Camera size={20} aria-hidden="true" /> Report Road Damage</Link>
                 <Link className="btn btn-lg btn-white" to="/user/routes"><RouteIcon size={20} aria-hidden="true" /> Plan a Safer Route</Link>
+                <EmergencyLink badge />
               </div>
               <div className="hero-proof">
                 <span><Layers size={17} aria-hidden="true" /> The complete road network, always visible</span>

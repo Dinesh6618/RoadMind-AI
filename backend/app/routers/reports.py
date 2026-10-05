@@ -103,14 +103,30 @@ def submit_report(
     The optional `severity_confirmation` is stored for reviewers but never changes the AI score.
     """
     state = request.app.state.app_state
+    require_reporter(state, user)
+    return store_damage_report(
+        db, state, user, image_bytes=_read_upload(image, state.settings.uploads.max_bytes), lat=lat, lng=lng, road_name=road_name,
+        description=description, reported_at=reported_at, severity_confirmation=severity_confirmation,
+    )
+
+
+def require_reporter(state, user: User | None) -> None:
+    """Storing a report needs an account while `auth.require_login_to_report` is on (the default)."""
     if user is None and state.settings.auth.require_login_to_report:
-        raise HTTPException(401, "Please log in or create a free account to submit a damage report.", headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(401, "Please log in or create a free account to submit a report.", headers={"WWW-Authenticate": "Bearer"})
+
+
+def store_damage_report(
+    db: Session, state, user: User | None, *, image_bytes: bytes, lat: float, lng: float, road_name: str, description: str,
+    reported_at: datetime | None, severity_confirmation: str | None,
+) -> dict:
+    """The damage pipeline behind POST /reports and the damage types of POST /road-reports."""
     if reported_at is not None and reported_at.tzinfo is None:
         reported_at = reported_at.replace(tzinfo=timezone.utc)
     try:
         o = pipeline.create_report(
             db, state,
-            image_bytes=_read_upload(image, state.settings.uploads.max_bytes),
+            image_bytes=image_bytes,
             lat=lat, lng=lng, road_name=road_name, description=description,
             reported_at=reported_at, user_severity=severity_confirmation, reporter_id=user.id if user else None,
         )

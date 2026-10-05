@@ -557,3 +557,4 @@ table.data.wide td:first-child { white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition: none !important; scroll-behavior: auto !important; }
 }
+.request-id { display: block; margin-top: 4px; font-size: 0.78rem; font-weight: 650; letter-spacing: 0.05em; opacity: 0.8; }

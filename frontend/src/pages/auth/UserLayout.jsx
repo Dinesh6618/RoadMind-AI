@@ -15,7 +15,7 @@ export default function UserLayout({ children, back }) {
   return (
     <div className="welcome">
       <section className="welcome-art">
-        {back && <div className="welcome-back"><BackButton fallback={back} /></div>}
+        {back && <div className="welcome-back"><BackButton to={back} /></div>}
         <Link to="/" aria-label="RoadMind AI - back to role selection"><Logo /></Link>
         <h1>Make every <span style={{ whiteSpace: 'nowrap' }}>journey safer.</span></h1>
         <p className="tagline">Smarter Roads • Safer Journeys</p>

@@ -1,0 +1,130 @@
+/* ==========================================================================
+   Road events: the report flow (type cards, point picker, confirmation, "My reports") and the staff Road events page.
+   Every class is prefixed ev-. Only the shared tokens from styles.css are used; tints come from color-mix.
+   ========================================================================== */
+
+/* ---------- report flow: what are you reporting? ---------- */
+.ev-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin-top: 4px; }
+.ev-type { position: relative; display: flex; align-items: flex-start; gap: 14px; text-align: left; padding: 16px; min-height: 92px; border: 2px solid var(--line); border-radius: var(--r); background: #fff; font: inherit; color: var(--ink); cursor: pointer; transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.12s; }
+.ev-type:hover { border-color: color-mix(in srgb, var(--tc) 55%, white); box-shadow: var(--shadow-sm); }
+.ev-type:active { transform: translateY(1px); }
+.ev-type.on { border-color: var(--tc); background: color-mix(in srgb, var(--tc) 8%, white); box-shadow: 0 10px 24px -14px var(--tc); }
+.ev-type-ico { flex: none; width: 48px; height: 48px; border-radius: 15px; display: grid; place-items: center; color: var(--tc); background: color-mix(in srgb, var(--tc) 14%, white); }
+.ev-type.on .ev-type-ico { color: #fff; background: var(--tc); }
+.ev-type-text { min-width: 0; display: grid; gap: 3px; padding-right: 22px; }
+.ev-type-text b { font-size: 1rem; line-height: 1.2; }
+.ev-type-text small { color: var(--muted); font-size: 0.82rem; line-height: 1.35; }
+.ev-type-check { position: absolute; right: 10px; top: 10px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--tc); color: #fff; }
+.ev-summary-emoji { font-size: 1.8rem; line-height: 1; }
+
+/* ---------- point picker (report location, staff "record an event") ---------- */
+.ev-picker-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
+.ev-picker-tip { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.86rem; font-weight: 600; }
+.ev-map { position: relative; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); }
+.ev-hint { color: var(--muted); font-size: 0.84rem; margin: 8px 0 0; }
+.ev-hint-warn { color: var(--high-ink); font-weight: 600; margin: 0 0 10px; }
+.ev-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.ev-coords .field { margin-bottom: 0; }
+
+/* ---------- confirmation after reporting an event ---------- */
+.ev-confirm-card { text-align: center; padding: 34px 26px; }
+.ev-confirm-card h1 { font-size: clamp(1.4rem, 3vw, 2rem); margin: 4px auto 14px; max-width: 28ch; }
+.ev-confirm-emoji { font-size: 3.2rem; line-height: 1; margin-bottom: 12px; }
+.ev-confirm-head { font-size: 1.05rem; letter-spacing: 0.02em; }
+.kv.ev-kv dd { text-align: left; overflow-wrap: anywhere; }
+.kv.ev-kv { grid-template-columns: minmax(110px, auto) 1fr; }
+.ev-desc { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- My reports: road events I reported ---------- */
+.ev-mine-h { font-size: 1.25rem; margin: 0 0 10px; }
+.ev-mine-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.ev-mine-item { display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px; flex-wrap: wrap; }
+.ev-mine-emoji { font-size: 1.9rem; line-height: 1; flex: none; }
+.ev-mine-body { flex: 1 1 260px; min-width: 0; display: grid; gap: 4px; }
+.ev-mine-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.ev-mine-desc { margin: 2px 0; color: var(--ink-2); overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* ---------- photos ---------- */
+.ev-thumb-link { display: inline-flex; flex-direction: column; gap: 6px; text-decoration: none; flex: none; }
+.ev-thumb { display: block; width: 140px; height: 100px; object-fit: cover; border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow-sm); background: var(--surface-2); }
+.ev-thumb-sm { width: 76px; height: 56px; border-radius: 10px; }
+
+/* ---------- staff page ---------- */
+.ev-page { max-width: 1100px; }
+.ev-back { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; font-size: 0.9rem; text-decoration: none; }
+.ev-back:hover { text-decoration: underline; }
+.ev-intro { margin: 0; color: var(--ink-2); max-width: 78ch; }
+.ev-spin { animation: spin 0.8s linear infinite; }
+.ev-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.ev-toolbar .tabs.ev-tabs { margin-bottom: 0; flex: 0 1 auto; }
+.ev-type-select { width: auto; min-width: 170px; min-height: 46px; flex: 0 0 auto; }
+.ev-count { display: inline-flex; justify-content: center; min-width: 22px; padding: 0 7px; margin-left: 8px; border-radius: 999px; background: var(--line); color: var(--ink-2); font-size: 0.74rem; font-weight: 750; }
+.tabs .on .ev-count { background: color-mix(in srgb, var(--brand) 16%, white); color: var(--brand-ink); }
+/* stays in view under the page header, so the result of an action is seen even when the card is far down the list */
+.ev-banner { align-items: center; margin: 0; position: sticky; top: 92px; z-index: 450; box-shadow: var(--shadow); }
+.ev-banner .btn { flex: none; margin-left: auto; }
+.ev-list { display: grid; gap: 16px; }
+
+/* one event */
+.ev-card { position: relative; padding: 20px 22px 18px 26px; overflow: hidden; }
+.ev-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--ec, var(--line-strong)); }
+.ev-card-main { display: flex; gap: 18px; align-items: flex-start; }
+.ev-card-body { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.ev-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 14px; }
+.ev-emoji { font-size: 1.9rem; line-height: 1; flex: none; }
+.ev-card-title { flex: 1 1 200px; min-width: 0; }
+.ev-card-title h3 { margin: 0; font-size: 1.12rem; letter-spacing: 0; }
+.ev-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ev-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 0.88rem; color: var(--ink-2); }
+.ev-meta > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.ev-meta svg { color: var(--muted); flex: none; }
+.ev-card .ev-desc { margin: 0; color: var(--ink); }
+.ev-times { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 0.86rem; color: var(--muted); font-weight: 600; }
+.ev-note { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); font-size: 0.86rem; overflow-wrap: anywhere; }
+.ev-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ev-actions .btn { min-height: 40px; }
+.ev-panel { margin-top: 14px; padding: 16px 18px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); }
+.ev-panel .field { margin-bottom: 12px; }
+.ev-panel-text { margin: 0 0 12px; color: var(--ink-2); font-size: 0.9rem; }
+.ev-fields { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.ev-fields .field { flex: 1 1 150px; min-width: 0; }
+.ev-fields .field.ev-grow { flex: 2 1 240px; }
+.ev-card-error { margin-top: 12px; }
+.ev-card-error .alert { margin-bottom: 0; }
+
+/* record an event */
+.ev-create { padding: 0; overflow: hidden; }
+.ev-create-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 18px 22px; border: 0; background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.ev-create-toggle:hover { background: var(--surface-2); }
+.ev-create-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.ev-create-body { padding: 4px 22px 22px; border-top: 1px solid var(--line); margin-top: 0; padding-top: 18px; }
+.ev-create-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.ev-create-form .alert { margin-bottom: 14px; }
+
+/* ---------- small screens ---------- */
+@media (max-width: 960px) {
+  .ev-create-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 960px) {
+  .ev-banner { top: 112px; } /* the page header is taller here (it wraps its subtitle) */
+}
+@media (max-width: 640px) {
+  .stat-grid.ev-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .ev-stats .stat { padding: 14px; }
+  .ev-stats .stat-icon { width: 34px; height: 34px; margin-bottom: 8px; }
+  .ev-stats .stat-value { font-size: 1.5rem; }
+  .ev-types { grid-template-columns: minmax(0, 1fr); }
+  .ev-card { padding: 16px 14px 14px 18px; }
+  .ev-card-main { flex-direction: column; gap: 12px; }
+  .ev-thumb { width: 100%; height: 160px; }
+  .ev-actions .btn { flex: 1 1 calc(50% - 8px); padding: 0 10px; white-space: normal; text-align: center; line-height: 1.2; }
+  .ev-create-toggle { padding: 16px; }
+  .ev-create-body { padding: 14px 16px 18px; }
+  .ev-toolbar { gap: 10px; }
+  .ev-toolbar .tabs.ev-tabs { width: 100%; }
+  .ev-type-select { width: 100%; }
+  .ev-confirm-card { padding: 26px 16px; }
+  .ev-mine-item { padding: 14px; }
+  .kv.ev-kv { grid-template-columns: 1fr; gap: 2px; }
+  .kv.ev-kv dd { margin-bottom: 8px; }
+}

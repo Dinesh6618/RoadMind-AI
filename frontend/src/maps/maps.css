@@ -1,0 +1,81 @@
+/* ==========================================================================
+   RoadMind map (frontend/src/maps). Everything here is namespaced rm-map-*.
+   Uses the design tokens from styles.css (--brand, --ink, --line, --shadow-*, .glass); fallbacks keep it usable alone.
+   ========================================================================== */
+
+.rm-map { position: relative; width: 100%; min-height: 220px; overflow: hidden; isolation: isolate; background: #e9ecf4; }
+
+/* the map itself: its own stacking context, so Google's / Leaflet's internal z-indexes never climb over our controls */
+.rm-map-engine { position: absolute; inset: 0; }
+.rm-map-canvas { position: absolute; inset: 0; z-index: 0; isolation: isolate; }
+
+/* ---- page children: a transparent layer over the map. Empty space passes clicks through to the map; the children
+   themselves are interactive (a child that is a `.map-ui` wrapper keeps its own pointer-events rules). ---- */
+.rm-map-children { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.rm-map-children > :not(.map-ui) { pointer-events: auto; }
+
+/* ---- loading ---- */
+.rm-map-loading { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted, #667094); font-weight: 650; font-size: 0.9rem; background: linear-gradient(180deg, #f3f1fd, #e9ecf4); }
+.rm-map-spin { animation: rm-map-spin 0.9s linear infinite; }
+@keyframes rm-map-spin { to { transform: rotate(360deg); } }
+
+/* ---- floating controls: locate + traffic ----
+   Google keeps its map-type menu + fullscreen button top right, so this column starts below them (62px). */
+.rm-map-controls { position: absolute; z-index: 4; top: 62px; right: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
+.rm-map-controls.is-leaflet { top: 10px; }
+.rm-map-controls > * { pointer-events: auto; }
+.rm-map-fab { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer; color: var(--ink, #0f1a3c); font: inherit; }
+.rm-map-fab:hover:not(:disabled) { color: var(--brand, #5b3df5); }
+.rm-map-fab:disabled { cursor: progress; }
+.rm-map-chip { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 13px; border-radius: 999px; border: 1.5px solid transparent; cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; color: var(--ink-2, #39446b); }
+.rm-map-chip i { width: 18px; height: 5px; border-radius: 99px; background: #c7cbe0; }
+.rm-map-chip.is-on { color: var(--brand-ink, #3c24b8); border-color: var(--brand, #5b3df5); }
+.rm-map-chip.is-on i { background: linear-gradient(90deg, #17a673 0 34%, #f2b01e 34% 67%, #e0342f 67%); } /* green / amber / red, like Google's traffic colours */
+.rm-map-fab:focus-visible, .rm-map-chip:focus-visible, .rm-map-banner button:focus-visible { outline: 3px solid rgba(91, 61, 245, 0.45); outline-offset: 2px; }
+
+/* ---- banners: top centre, compact ---- */
+.rm-map-notices { position: absolute; z-index: 6; top: 10px; left: 50%; transform: translateX(-50%); width: max-content; max-width: min(540px, calc(100% - 24px)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.rm-map-banner { pointer-events: auto; display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px; border-radius: 14px; border: 1px solid; font-size: 0.8rem; font-weight: 650; line-height: 1.35; box-shadow: var(--shadow, 0 10px 30px -12px rgba(63, 48, 160, 0.3)); }
+.rm-map-banner > svg { flex: none; margin-top: 1px; }
+.rm-map-banner > span { min-width: 0; }
+.rm-map-banner button { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin: -2px -4px -2px 2px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; opacity: 0.7; }
+.rm-map-banner button:hover { opacity: 1; background: rgba(15, 26, 60, 0.07); }
+.rm-map-banner.is-error { background: #fff1f0; border-color: #f2b3af; color: var(--critical-ink, #a3191a); }
+.rm-map-banner.is-info { background: var(--brand-soft, #efeaff); border-color: #d9ceff; color: var(--brand-ink, #3c24b8); }
+.rm-map-banner.is-warn { background: #fff8e6; border-color: #f1d28a; color: var(--moderate-ink, #8a5a00); }
+
+/* ---- status panel (MapStatusBar). bottom: 44px keeps clear of Google's logo and terms row. ---- */
+.rm-map-status { position: absolute; z-index: 3; left: 10px; bottom: 44px; max-width: min(310px, calc(100% - 80px)); padding: 8px 12px; border-radius: 14px; font-size: 0.72rem; line-height: 1.45; font-weight: 600; color: var(--ink, #0f1a3c); }
+.rm-map-status__line { overflow-wrap: anywhere; }
+.rm-map-status__k { color: var(--muted, #667094); font-weight: 650; }
+.rm-map-status__ok { color: var(--good-ink, #0b6e4b); font-weight: 750; margin-left: 1px; }
+
+/* ---- hover tooltips ---- */
+.rm-map-tip { position: absolute; z-index: 5; left: 0; top: 0; max-width: 260px; padding: 6px 10px; border-radius: 10px; transform: translate(-50%, calc(-100% - 14px)); background: rgba(15, 26, 60, 0.92); color: #fff; font: 600 0.78rem/1.3 var(--font, system-ui, sans-serif); pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.12s; }
+.rm-map-tip.is-on { opacity: 1; visibility: visible; }
+.leaflet-tooltip.rm-map-ltip { background: rgba(15, 26, 60, 0.92); color: #fff; border: 0; border-radius: 10px; padding: 6px 10px; font: 600 0.78rem/1.3 var(--font, system-ui, sans-serif); box-shadow: 0 6px 18px -8px rgba(15, 26, 60, 0.5); white-space: normal; max-width: 260px; }
+.leaflet-tooltip-top.rm-map-ltip::before { border-top-color: rgba(15, 26, 60, 0.92); }
+.leaflet-tooltip-bottom.rm-map-ltip::before { border-bottom-color: rgba(15, 26, 60, 0.92); }
+
+/* ---- round marker badge (Leaflet divIcon; Google gets the same look as an inline SVG icon) ---- */
+.rm-map-pin-icon { background: none; border: 0; }
+.rm-map-pin { display: grid; place-items: center; box-sizing: border-box; border-radius: 50%; border: 3px solid #fff; background: var(--c, #5b3df5); box-shadow: 0 2px 6px rgba(15, 26, 60, 0.38); color: #fff; font-weight: 700; line-height: 1; user-select: none; font-family: var(--font, system-ui, sans-serif), 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji'; }
+.rm-map-pin.is-click { cursor: pointer; }
+.rm-map-me-icon { background: none; border: 0; }
+.rm-map-me { box-sizing: border-box; width: 20px; height: 20px; border-radius: 50%; background: #2563eb; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35), 0 2px 6px rgba(15, 26, 60, 0.35); }
+
+/* ---- Leaflet fallback: match the app's controls ---- */
+.rm-map .leaflet-container { font-family: var(--font, system-ui, sans-serif); background: #e6e9f1; }
+.rm-map .leaflet-control-zoom { border: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow, 0 10px 30px -12px rgba(63, 48, 160, 0.3)); background: var(--glass, rgba(255, 255, 255, 0.74)); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.rm-map .leaflet-control-zoom a { background: transparent; color: var(--ink, #0f1a3c); width: 40px; height: 40px; line-height: 40px; font-size: 20px; border: 0; }
+.rm-map .leaflet-control-zoom a + a { border-top: 1px solid var(--line, #e7e3f8); }
+.rm-map .leaflet-bottom.leaflet-right .leaflet-control { margin-right: 10px; }
+.rm-map .leaflet-control-attribution { border-radius: 8px 0 0 0; font-size: 0.68rem; }
+
+@media (max-width: 560px) {
+  /* a phone: banners sit left of the locate button instead of centred over it */
+  .rm-map-notices { left: 10px; transform: none; align-items: flex-start; max-width: calc(100% - 64px); }
+  .rm-map-notices.is-google { top: 56px; } /* below Google's map-type menu + fullscreen button */
+  .rm-map-banner { font-size: 0.76rem; padding: 8px 10px; }
+  .rm-map-status { font-size: 0.68rem; padding: 7px 10px; }
+}

@@ -1,15 +1,17 @@
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Place, RouteQuery
-from ..schemas import RouteRequest
+from ..schemas import RouteCalcRequest, RouteRequest
 from ..security import RateLimit, get_db
 from ..services import network as net
-from ..services.routing import geocode
+from ..services.routing import geocode, intelligence
 from ..services.routing.types import RoutingUnavailable
 
+log = logging.getLogger("roadmind.routes")
 router = APIRouter(prefix="/routes", tags=["Route planner"])
 _limit = RateLimit(60, 60)
 
@@ -38,6 +40,26 @@ def recommend(body: RouteRequest, request: Request, db: Session = Depends(get_db
         )
     except RoutingUnavailable as exc:
         raise HTTPException(503 if exc.retryable else 422, str(exc)) from None
+
+
+@router.post("/calculate", summary="Traffic-aware routes scored by RoadMind (road condition, risk, blockages)", dependencies=[Depends(_limit)])
+def calculate(body: RouteCalcRequest, request: Request, db: Session = Depends(get_db)):
+    """The smart route engine. Routes come from the Google Routes API (traffic-aware, with alternatives) when
+    `GOOGLE_MAPS_API_KEY` is set - otherwise from RoadMind's own OpenStreetMap routing, and the answer says that live traffic
+    is unavailable (nothing is invented). Every route gets the RoadMind Route Risk Score
+    `traffic*0.30 + road_damage*0.25 + predicted_damage*0.15 + blockage*0.30` (configurable, unavailable parts are left out),
+    is checked against verified road events, and is marked RECOMMENDED / ALTERNATIVE / AVOID. A route with a verified blockage
+    is AVOID unless every route has one. If the route a driver would normally take is blocked, `alert` explains it and names the
+    recommended alternative."""
+    engine = request.app.state.app_state.route_engine
+    try:
+        return intelligence.calculate(
+            engine, db, (body.origin.lat, body.origin.lng), (body.destination.lat, body.destination.lng),
+            origin_name=body.origin.name, destination_name=body.destination.name, departure_time=body.departure_time,
+        )
+    except RoutingUnavailable as exc:
+        log.warning("Route calculation failed: %s", exc)
+        raise HTTPException(503 if exc.retryable else 422, f"Unable to calculate routes right now. {exc}" if exc.retryable else str(exc)) from None
 
 
 @router.get("/places", summary="Suggested places, map centre and default route weights")

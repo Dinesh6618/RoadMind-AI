@@ -1,74 +1,26 @@
-import { ArrowDownUp, Check, CheckCircle2, Circle, LocateFixed, MapPin, Navigation, Route as RouteIcon, SlidersHorizontal, Star } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { CircleMarker, Polyline, Tooltip } from 'react-leaflet'
+import { ArrowDownUp, CheckCircle2, CircleHelp, Info, Navigation, Route as RouteIcon, TriangleAlert, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, useApi } from '../api'
-import { ConditionLegend, ErrorBox, Notice, Spinner } from '../components'
-import { ROUTE_INK, ROUTE_LINE, STATE_COLORS, STATE_INK } from '../format'
-import NetworkMap, { ROUTE_PANE } from '../NetworkMap'
+import { ErrorBox, Notice, Spinner } from '../components'
+import MapCanvas from '../maps/MapCanvas'
+import EmergencyLink from './emergency/EmergencyLink'
+import BlockedAlert from './routes/BlockedAlert'
+import ComparisonTable from './routes/ComparisonTable'
+import MapKey from './routes/MapKey'
+import PlaceField from './routes/PlaceField'
+import ResultStatus from './routes/ResultStatus'
+import RouteCard from './routes/RouteCard'
+import ScoreExplainer from './routes/ScoreExplainer'
+import { fmtDuration, fmtKm, routeError, useNow } from './routes/routeFormat'
+import { ROUTE_RED, boundsOf, buildOverlays, collectEvents, eventEmoji } from './routes/routeScene'
+import './routeplanner.css'
 
-const DAMAGE_STATE = { Low: 'GOOD', Moderate: 'MODERATE', High: 'HIGH_RISK', Severe: 'CRITICAL', Unknown: 'UNKNOWN' }
-const RISK_WORD = { Low: 'Low Risk', Moderate: 'Moderate Risk', High: 'High Risk', Severe: 'Severe Risk', Unknown: 'Risk unknown' }
-
-/** Preferences become route-score weights (distance / time / road-damage risk). */
-function weightsFor({ avoid, shorter }, base) {
-  if (shorter) return avoid ? { distance: 0.45, time: 0.25, damage_risk: 0.3 } : { distance: 0.6, time: 0.3, damage_risk: 0.1 }
-  return avoid ? base : { distance: 0.4, time: 0.4, damage_risk: 0.2 }
-}
-
-function PlaceField({ label, tag, value, onChange, suggestions, picking, onPickToggle, locate }) {
-  const [text, setText] = useState(value?.name || '')
-  const [hits, setHits] = useState([])
-  const [open, setOpen] = useState(false)
-  const [typed, setTyped] = useState(false)
-  const box = useRef(null)
-  useEffect(() => { setText(value?.name || ''); setTyped(false) }, [value?.name])
-  useEffect(() => {
-    if (!typed || text.trim().length < 2) { setHits([]); return }
-    const t = setTimeout(() => api(`/routes/geocode?q=${encodeURIComponent(text.trim())}`).then(setHits).catch(() => setHits([])), 350)
-    return () => clearTimeout(t)
-  }, [text, typed])
-  useEffect(() => {
-    const close = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [])
-  const options = typed && text.trim().length >= 2 ? hits : suggestions
-  return (
-    <div className="field place-input" ref={box}>
-      <label htmlFor={`pf-${tag}`}>{label}</label>
-      <div className="row nowrap-row" style={{ gap: 8 }}>
-        <div className="input-icon" style={{ flex: 1 }}>
-          <MapPin size={18} aria-hidden="true" style={{ color: tag === 'from' ? 'var(--ink)' : 'var(--brand)' }} />
-          <input id={`pf-${tag}`} className="input" value={text} placeholder={tag === 'from' ? 'Where are you starting?' : 'Where are you going?'} autoComplete="off"
-            onFocus={() => setOpen(true)} onChange={(e) => { setText(e.target.value); setTyped(true); setOpen(true) }} />
-        </div>
-        {locate && <button type="button" className="btn btn-soft btn-icon" onClick={locate} aria-label="Use my current location" title="Use my current location"><LocateFixed size={18} /></button>}
-        <button type="button" className={`btn btn-icon ${picking ? 'btn-primary' : ''}`} onClick={onPickToggle} aria-pressed={picking} aria-label={`Pick ${label.toLowerCase()} on the map`} title="Pick on the map"><MapPin size={18} /></button>
-      </div>
-      {open && options.length > 0 && (
-        <div className="suggest" role="listbox">
-          {options.map((p) => (
-            <button type="button" key={`${p.name}${p.lat}`} onClick={() => { onChange({ name: p.name, lat: p.lat, lng: p.lng }); setOpen(false) }}>
-              {p.name}<small>{p.source === 'osm' ? 'OpenStreetMap search' : p.kind}</small>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Pref({ on, onChange, title, hint }) {
-  return (
-    <button type="button" role="checkbox" aria-checked={on} className={`check ${on ? 'on' : ''}`} onClick={() => onChange(!on)} style={{ textAlign: 'left', font: 'inherit' }}>
-      {on ? <CheckCircle2 size={22} style={{ color: 'var(--brand)', flex: 'none' }} aria-hidden="true" /> : <Circle size={22} style={{ color: '#b9b2dd', flex: 'none' }} aria-hidden="true" />}
-      <span>{title}{hint && <small>{hint}</small>}</span>
-    </button>
-  )
-}
-
-const midpoint = (geom) => geom[Math.floor(geom.length / 2)]
+const NoIcon = () => null // Notice always draws an icon; the server's message lines already start with an emoji
+const MESSAGE_KINDS = { error: 'error', warn: 'warn', ok: 'ok', info: 'info' }
+const stripEmoji = (s) => String(s || '').replace(/^[\p{Extended_Pictographic}️‍\s]+/u, '').trim().toLowerCase()
+// What the blocked-road card already says (so the message list does not repeat it).
+const IN_ALERT = /road blocked ahead|lower-risk alternative found|avoids the reported blockage/i
 
 export default function RoutePlanner() {
   const places = useApi('/routes/places')
@@ -76,52 +28,128 @@ export default function RoutePlanner() {
   const [from, setFrom] = useState(null)
   const [to, setTo] = useState(null)
   const [picking, setPicking] = useState(null)
-  const [prefs, setPrefs] = useState({ avoid: true, alts: true, shorter: false })
-  const [custom, setCustom] = useState(null) // fine-tuned weights (percent), overrides the preset
+  const [alts, setAlts] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [finding, setFinding] = useState('compare') // what the busy state says: 'compare' | 'alt' (recalculating after a blocked-road alert)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
-  const [selected, setSelected] = useState(null)
+  const [active, setActive] = useState(null) // the route label highlighted on the map / in the list
+  const [view, setView] = useState(null) // the map's current viewport (for the live road events in view)
+  const [liveEvents, setLiveEvents] = useState([])
+  const [pan, setPan] = useState(null)
+  const [announce, setAnnounce] = useState('')
+  const [avoidOpen, setAvoidOpen] = useState(true)
+  const [engine, setEngine] = useState(null) // 'google' | 'leaflet' once the map reports it
   const started = useRef(false)
+  const reqId = useRef(0)
+  const ctl = useRef(null)
+  const mapRef = useRef(null)
+  const mapWrap = useRef(null)
+  const routesRef = useRef(null)
+  const statusRef = useRef(null)
+  const scrollAfter = useRef(false)
+  const cardRefs = useRef({})
 
+  const now = useNow(30000, !!result)
   const suggestions = useMemo(() => (places.data?.places || []).map((p) => ({ ...p, source: 'network' })), [places.data])
-  const base = places.data?.default_weights
 
-  async function findRoutes(o = from, d = to, pf = prefs) {
+  // ------------------------------------------------------------------ calculation
+  const findRoutes = useCallback(async (o, d, { fromAlert = false, refit = true } = {}) => {
     setError(null)
-    if (!o || !d) return setError(new Error('Choose both a start and a destination.'))
+    if (!o || !d) { setError({ message: 'Choose both a start and a destination.' }); return }
+    ctl.current?.abort()
+    const c = new AbortController()
+    ctl.current = c
+    const id = ++reqId.current
+    setFinding(fromAlert ? 'alt' : 'compare')
     setBusy(true)
     try {
-      const w = custom ? { distance: custom.distance / 100, time: custom.time / 100, damage_risk: custom.damage_risk / 100 } : weightsFor(pf, base)
-      const res = await api('/routes/recommend', { method: 'POST', json: { origin: o, destination: d, weights: w } })
+      const res = await api('/routes/calculate', {
+        method: 'POST', signal: c.signal,
+        json: { origin: { lat: o.lat, lng: o.lng, name: o.name }, destination: { lat: d.lat, lng: d.lng, name: d.name } },
+      })
+      if (id !== reqId.current) return
       setResult(res)
-      setSelected(res.recommended)
+      setActive(res.recommended)
+      if (refit) mapRef.current?.fitTo(boundsOf(res.routes || [], res.origin, res.destination))
     } catch (err) {
+      if (err.name === 'AbortError' || id !== reqId.current) return
       setResult(null)
-      setError(err)
+      setError(routeError(err))
     } finally {
-      setBusy(false)
+      if (id === reqId.current) setBusy(false)
     }
-  }
+  }, [])
 
-  // Open with a meaningful trip: the one passed from a map card, else the demo's featured trip (run once).
+  useEffect(() => () => ctl.current?.abort(), [])
+
+  // The map page's "plan a route around this event" link (?avoidLat&avoidLng&avoidName&avoidEvent): NO destination is set from it.
+  // The map just shows the place, a note explains, and the user picks start and destination (so no demo trip is started either).
+  const avLat = parseFloat(params.get('avoidLat'))
+  const avLng = parseFloat(params.get('avoidLng'))
+  const avoidName = params.get('avoidName') || ''
+  const avoidEvent = params.get('avoidEvent') || ''
+  const hasAvoid = Number.isFinite(avLat) && Number.isFinite(avLng)
+  useEffect(() => {
+    if (!hasAvoid) return
+    started.current = true
+    setAvoidOpen(true)
+    setPan({ lat: avLat, lng: avLng, zoom: 15 })
+  }, [hasAvoid, avLat, avLng, avoidName, avoidEvent])
+
+  // A destination handed over from another page (?toLat&toLng&toName) pre-fills "To". "From" is only ever set by the user.
+  const toLat = parseFloat(params.get('toLat'))
+  const toLng = parseFloat(params.get('toLng'))
+  const toName = params.get('toName')
+  const hasDeep = Number.isFinite(toLat) && Number.isFinite(toLng)
+  useEffect(() => {
+    if (!hasDeep) return
+    started.current = true // a chosen destination replaces the demo trip
+    setTo({ name: toName || 'Selected road', lat: toLat, lng: toLng })
+    setPan({ lat: toLat, lng: toLng, zoom: 15 })
+  }, [hasDeep, toLat, toLng, toName])
+
+  // Otherwise open with the demo's featured trip (once).
   useEffect(() => {
     if (!places.data || started.current) return
     started.current = true
-    const toLat = parseFloat(params.get('toLat')), toLng = parseFloat(params.get('toLng'))
-    if (Number.isFinite(toLat) && Number.isFinite(toLng)) {
-      setTo({ name: params.get('toName') || 'Selected road', lat: toLat, lng: toLng })
-      return
-    }
     const trip = places.data.suggested_trips?.[0]
-    if (trip) { setFrom(trip.origin); setTo(trip.destination); findRoutes(trip.origin, trip.destination, prefs) }
-  }, [places.data]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (trip) { setFrom(trip.origin); setTo(trip.destination); findRoutes(trip.origin, trip.destination) }
+  }, [places.data, findRoutes])
 
-  function useMyLocation() {
-    if (!navigator.geolocation) return setError(new Error('Your browser does not support location.'))
+  // ------------------------------------------------------------- live road events in view
+  useEffect(() => {
+    if (!view) return undefined
+    const c = new AbortController()
+    const t = setTimeout(() => {
+      const q = new URLSearchParams({ south: view.south, west: view.west, north: view.north, east: view.east })
+      api(`/road-events/active?${q}`, { signal: c.signal }).then((d) => setLiveEvents(Array.isArray(d?.items) ? d.items : [])).catch(() => { /* an optional overlay: keep what is drawn */ })
+    }, 250)
+    return () => { clearTimeout(t); c.abort() }
+  }, [view, result?.generated_at])
+
+
+  // On a phone the map and the answer are below the form: after the user asks for routes, bring the answer into view
+  // (a blocked-road alert first - it has the button that shows the alternative on the map - otherwise the map).
+  useEffect(() => {
+    if (!result || busy || !scrollAfter.current) return
+    scrollAfter.current = false
+    if (!window.matchMedia('(max-width: 1180px)').matches) return
+    const target = result.alert ? statusRef.current : mapWrap.current
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [result, busy])
+
+  // ---------------------------------------------------------------------- inputs
+  function choose(which, place) {
+    which === 'from' ? setFrom(place) : setTo(place)
+    setPan({ lat: place.lat, lng: place.lng, zoom: 15 })
+  }
+
+  function locateMe() {
+    if (!navigator.geolocation) return setError({ message: 'Your browser does not support location.' })
     navigator.geolocation.getCurrentPosition(
-      (pos) => setFrom({ name: 'My location', lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => setError(new Error('Could not get your location. Search for a place or pick it on the map.')),
+      (pos) => choose('from', { name: 'My location', lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => setError({ message: 'Could not get your location. Search for a place or pick it on the map.' }),
       { timeout: 10000, enableHighAccuracy: true },
     )
   }
@@ -133,166 +161,166 @@ export default function RoutePlanner() {
     setPicking(null)
   }
 
+  // --------------------------------------------------------------------- derived
   const all = result?.routes || []
-  const fastest = all.find((r) => r.is_fastest)
-  const recommended = all.find((r) => r.recommendation === 'Recommended')
-  const routes = prefs.alts ? all : all.filter((r) => r.recommendation === 'Recommended')
-  const chosen = routes.find((r) => r.label === selected) || recommended
+  const recommended = all.find((r) => r.label === result?.recommended) || all.find((r) => r.status === 'RECOMMENDED')
+  const routes = useMemo(() => (alts ? all : all.filter((r) => r.label === recommended?.label)), [result, alts]) // eslint-disable-line react-hooks/exhaustive-deps
+  const activeLabel = routes.find((r) => r.label === active)?.label || recommended?.label || null
 
-  const bounds = useMemo(() => {
-    const pts = routes.flatMap((r) => r.geometry)
-    if (!pts.length) return null
-    const lats = pts.map((p) => p[0]), lngs = pts.map((p) => p[1])
-    return [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]]
-  }, [result, prefs.alts]) // eslint-disable-line react-hooks/exhaustive-deps
+  const events = useMemo(() => collectEvents(all, liveEvents), [result, liveEvents]) // eslint-disable-line react-hooks/exhaustive-deps
+  const avoidPin = useMemo(() => {
+    if (!hasAvoid) return null
+    const ev = liveEvents.find((e) => String(e.id) === avoidEvent)
+    return { lat: avLat, lng: avLng, name: avoidName, emoji: ev ? eventEmoji(ev) : '🚧' }
+  }, [hasAvoid, avLat, avLng, avoidName, avoidEvent, liveEvents])
+  const overlays = useMemo(
+    () => buildOverlays({
+      routes, active: activeLabel, origin: from, destination: to, avoid: avoidPin, picking: !!picking, onSelect: setActive,
+      events: avoidPin && avoidEvent ? events.filter((e) => String(e.id) !== avoidEvent) : events, // the pin already marks that event
+    }),
+    [routes, activeLabel, from, to, events, avoidPin, avoidEvent, picking],
+  )
+  const fit = useMemo(() => {
+    if (routes.length) return boundsOf(routes, from, to)
+    return from && to ? boundsOf([], from, to) : null
+  }, [routes, from, to])
 
-  let verdict = null
-  if (recommended) {
-    if (recommended.is_fastest) verdict = result.summary
-    else if (fastest) {
-      const extra = recommended.distance_km - fastest.distance_km
-      const rel = fastest.distance_km ? extra / fastest.distance_km : 0
-      verdict = `${rel <= 0.25 ? 'Slightly longer' : 'Longer'} (${extra >= 0 ? '+' : ''}${extra.toFixed(1)} km) but safer, based on available road-condition data.`
-    }
+  const alert = result?.alert || null
+  const trafficOn = !!result?.traffic?.available
+  const allBlocked = !!alert && !alert.alternative
+  const messages = useMemo(() => {
+    if (!result) return []
+    const trafficLine = stripEmoji(result.traffic?.message)
+    return (result.messages || []).filter((m) => !(alert && IN_ALERT.test(m.text)) && !(trafficLine && stripEmoji(m.text) === trafficLine))
+  }, [result, alert])
+
+  // ------------------------------------------------------------------- actions
+  const run = () => { scrollAfter.current = true; findRoutes(from, to, { fromAlert: !!result?.alert }) }
+  const recalculate = () => result && findRoutes(result.origin, result.destination, { fromAlert: !!result.alert, refit: false })
+
+  function select(label) {
+    setActive(label)
   }
-  const drawOrder = [...routes].sort((a, b) => (a.label === selected) - (b.label === selected) || (a.recommendation === 'Recommended') - (b.recommendation === 'Recommended'))
+
+  function showRecommended() {
+    if (!recommended) return
+    setActive(recommended.label)
+    mapRef.current?.fitTo(boundsOf([recommended]))
+    cardRefs.current[recommended.label]?.focus({ preventScroll: true })
+    mapWrap.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    setAnnounce(`${recommended.label} selected. The map now shows the recommended route.`)
+  }
+
+  function viewOtherRoutes() {
+    setAlts(true)
+    routesRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    const other = all.find((r) => r.label !== recommended?.label) || all[0]
+    setTimeout(() => cardRefs.current[other?.label]?.focus({ preventScroll: true }), 0)
+  }
+
+  const providerNote = result?.provider === 'google' ? 'Routes and traffic: Google Maps' : 'Routes: OpenStreetMap-based RoadMind routing (no live traffic)'
+  const summaryTone = allBlocked ? 'is-warn' : recommended?.risk == null ? 'is-neutral' : ''
 
   return (
-    <div className="container page">
+    <div className="container page rp-page">
       <div className="page-head">
         <h1>Plan a Safer Route</h1>
-        <p>Find the best route based on road condition, distance and travel time.</p>
+        <p>Compare routes by live traffic, road condition, predicted risk and verified road blockages.</p>
       </div>
 
-      <div className="route-layout">
+      <div className="route-layout rp-layout">
         <div className="route-form stack">
           <div className="card">
-            <PlaceField label="From" tag="from" value={from} onChange={setFrom} suggestions={suggestions} picking={picking === 'from'} onPickToggle={() => setPicking(picking === 'from' ? null : 'from')} locate={useMyLocation} />
+            {hasAvoid && avoidOpen && (
+              <div className="alert alert-info rp-avoid" role="status">
+                <Info size={18} aria-hidden="true" />
+                <span>Planning around <b>{avoidName || 'the reported blockage'}</b>: pick your start and destination - RoadMind checks every route against verified road events and avoids a verified blockage.</span>
+                <button type="button" onClick={() => setAvoidOpen(false)} aria-label="Dismiss this message"><X size={16} aria-hidden="true" /></button>
+              </div>
+            )}
+            <PlaceField label="From" tag="from" value={from} onChange={(p) => choose('from', p)} suggestions={suggestions} picking={picking === 'from'} onPickToggle={() => setPicking(picking === 'from' ? null : 'from')} locate={locateMe} />
             <div className="swap"><button type="button" onClick={() => { setFrom(to); setTo(from) }} aria-label="Swap start and destination"><ArrowDownUp size={18} /></button></div>
-            <PlaceField label="To" tag="to" value={to} onChange={setTo} suggestions={suggestions} picking={picking === 'to'} onPickToggle={() => setPicking(picking === 'to' ? null : 'to')} />
+            <PlaceField label="To" tag="to" value={to} onChange={(p) => choose('to', p)} suggestions={suggestions} picking={picking === 'to'} onPickToggle={() => setPicking(picking === 'to' ? null : 'to')} />
             {picking && <Notice kind="info">Click a point on the map to set the {picking === 'from' ? 'start' : 'destination'}.</Notice>}
 
-            <div className="prefs" role="group" aria-label="Preferences">
-              <Pref on={prefs.avoid} onChange={(v) => { setCustom(null); setPrefs({ ...prefs, avoid: v }) }} title="Avoid high-risk roads" hint="Weigh road condition heavily when ranking routes" />
-              <Pref on={prefs.alts} onChange={(v) => setPrefs({ ...prefs, alts: v })} title="Show alternative routes" hint="Compare more than just the best route" />
-              <Pref on={prefs.shorter} onChange={(v) => { setCustom(null); setPrefs({ ...prefs, shorter: v }) }} title="Prefer shorter distance" hint="Give distance and travel time more weight" />
-            </div>
+            <label className={`check rp-alts${alts ? ' on' : ''}`}>
+              <input type="checkbox" checked={alts} onChange={(e) => setAlts(e.target.checked)} />
+              <span>Show alternative routes<small>Compare more than just the recommended route</small></span>
+            </label>
 
-            {base && (
-              <details style={{ marginBottom: 18 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 650, display: 'flex', alignItems: 'center', gap: 8 }}><SlidersHorizontal size={16} aria-hidden="true" /> Fine-tune the scoring</summary>
-                <p className="small muted" style={{ margin: '10px 0' }}>How much each factor counts. Only the balance matters. Moving a slider replaces the preferences above.</p>
-                {[['distance', 'Distance'], ['time', 'Travel time'], ['damage_risk', 'Road-damage risk']].map(([k, name]) => {
-                  const w = custom || Object.fromEntries(Object.entries(weightsFor(prefs, base)).map(([a, v]) => [a, Math.round(v * 100)]))
-                  return (
-                    <div className="field" key={k} style={{ marginBottom: 8 }}>
-                      <label htmlFor={`w-${k}`}>{name}: {w[k]}%</label>
-                      <input id={`w-${k}`} type="range" min="0" max="100" value={w[k]} onChange={(e) => setCustom({ ...w, [k]: Number(e.target.value) })} />
-                    </div>
-                  )
-                })}
-                {custom && <button type="button" className="btn btn-small" onClick={() => setCustom(null)}>Back to preferences</button>}
-              </details>
-            )}
+            <ScoreExplainer weights={result?.weights} />
 
-            <button className="btn btn-primary btn-lg btn-block" onClick={() => findRoutes()} disabled={busy}>
-              <Navigation size={19} aria-hidden="true" /> {busy ? 'Comparing routes…' : 'Find Best Route'}
+            <button type="button" className="btn btn-primary btn-lg btn-block" onClick={run} disabled={busy}>
+              <Navigation size={19} aria-hidden="true" /> {busy ? (finding === 'alt' ? 'Finding an alternative route…' : 'Comparing routes…') : 'Find Best Route'}
             </button>
+            <EmergencyLink dest={to} className="em-cta-block" />
           </div>
           <ErrorBox error={error} />
         </div>
 
-        <div className="route-map-col">
-          <NetworkMap height={620} dim={routes.length > 0} bounds={bounds} onPick={picking ? onMapPick : undefined}>
-            {drawOrder.map((r) => {
-              const rec = r.recommendation === 'Recommended'
-              const on = r.label === selected
-              const m = midpoint(r.geometry)
-              return (
-                <span key={r.label}>
-                  <Polyline positions={r.geometry} pane={ROUTE_PANE} pathOptions={{ color: '#fff', weight: (rec ? 14 : 11) + (on ? 2 : 0), opacity: 0.95, lineCap: 'round', lineJoin: 'round' }} />
-                  <Polyline positions={r.geometry} pane={ROUTE_PANE} pathOptions={{ color: ROUTE_LINE[r.recommendation], weight: (rec ? 9 : 6) + (on ? 2 : 0), opacity: 1, lineCap: 'round', lineJoin: 'round' }} eventHandlers={{ click: () => setSelected(r.label) }} />
-                  <CircleMarker center={m} radius={1} pane={ROUTE_PANE} pathOptions={{ opacity: 0, fillOpacity: 0 }} interactive={false}>
-                    <Tooltip permanent direction="top" offset={[0, -6]} className="route-tip">
-                      <span className="route-label" style={{ background: ROUTE_LINE[r.recommendation] }}>{r.label.replace('Route ', '')} · {rec ? 'Recommended' : r.risk_percent != null ? `${r.risk_percent}% risk` : 'No data'}</span>
-                    </Tooltip>
-                  </CircleMarker>
-                </span>
-              )
-            })}
-            {from && <CircleMarker center={[from.lat, from.lng]} radius={9} pane={ROUTE_PANE} pathOptions={{ color: '#fff', weight: 3.5, fillColor: '#0f1a3c', fillOpacity: 1 }}><Tooltip permanent direction="left" offset={[-8, 0]} className="route-tip"><span className="route-label" style={{ background: '#0f1a3c' }}>Start</span></Tooltip></CircleMarker>}
-            {to && <CircleMarker center={[to.lat, to.lng]} radius={9} pane={ROUTE_PANE} pathOptions={{ color: '#fff', weight: 3.5, fillColor: '#5b3df5', fillOpacity: 1 }}><Tooltip permanent direction="right" offset={[8, 0]} className="route-tip"><span className="route-label" style={{ background: '#5b3df5' }}>Destination</span></Tooltip></CircleMarker>}
-          </NetworkMap>
-          <div className="card stack-sm" style={{ marginTop: 16 }}>
-            <ConditionLegend />
-            <p className="small muted" style={{ margin: 0 }}>The whole network stays visible underneath. Grey roads have no RoadMind data: they are shown as No Data, and routes are neither rewarded nor penalised for them.</p>
+        <div className="route-map-col" ref={mapWrap}>
+          <div className="rp-map">
+            <MapCanvas
+              ref={mapRef} height="100%" traffic overlays={overlays} fit={fit} pan={pan}
+              onViewportChange={setView} onStatus={(st) => setEngine(st.ready ? st.engine : null)} onMapClick={picking ? onMapPick : undefined} showLocate showTrafficToggle
+            >
+              <MapKey variant="overlay" routes={routes} activeLabel={activeLabel} onSelect={select} trafficOn={trafficOn} />
+            </MapCanvas>
           </div>
+          <MapKey variant="below" routes={routes} activeLabel={activeLabel} onSelect={select} trafficOn={trafficOn} />
+          <ul className="rp-key" aria-label="Map symbols">
+            <li><span className="rp-key-pin" style={{ '--c': ROUTE_RED }}>🚧</span>Verified blockage or closure</li>
+            <li><span className="rp-key-pin" style={{ '--c': '#f7762c' }}>⚠️</span>Other verified event</li>
+            <li><span className="rp-key-pin" style={{ '--c': '#f5a524' }}>?</span>Unverified community report</li>
+          </ul>
+          <p className="small muted rp-key-note">{engine ? `The map and its roads come from ${engine === 'google' ? 'Google Maps' : 'OpenStreetMap'}` : 'The map and its roads come from a real-world map provider'}; RoadMind adds road events, condition and risk on top. RoadMind never invents traffic: where it is unavailable, it says so.</p>
         </div>
 
-        <div className="route-results stack">
-          {busy && <div className="card"><Spinner label="Scoring routes against road conditions…" /></div>}
+        {(busy || result) && (
+          <div className="rp-status stack" ref={statusRef}>
+            {busy && <div className="card"><Spinner label={finding === 'alt' ? 'Finding an alternative route…' : 'Scoring routes against traffic, road conditions and blockages…'} /></div>}
+            {result && !busy && (
+              <>
+                <ResultStatus result={result} now={now} busy={busy} onRecalculate={recalculate} />
+                <BlockedAlert alert={alert} generatedAt={result.generated_at} now={now} onUseRecommended={showRecommended} onViewRoutes={viewOtherRoutes} />
+                {recommended && (
+                  <div className={`banner rp-banner ${summaryTone}`}>
+                    {allBlocked ? <TriangleAlert size={24} aria-hidden="true" /> : <CheckCircle2 size={24} aria-hidden="true" />}
+                    <div>
+                      <b>{result.summary}</b>
+                      {recommended.label} · {fmtKm(recommended.distance_km)} · {fmtDuration(recommended.duration_min)} · RoadMind risk {recommended.risk == null ? 'n/a' : `${Math.round(recommended.risk)}/100`}
+                    </div>
+                  </div>
+                )}
+                {messages.length > 0 && (
+                  <div className="rp-messages">
+                    {messages.map((m, i) => <Notice key={`${i}-${m.text}`} kind={MESSAGE_KINDS[m.kind] || 'info'} icon={NoIcon}>{m.text}</Notice>)}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="route-results stack" ref={routesRef}>
           {result && !busy && (
             <>
-              <div className={`banner ${recommended?.risk_percent == null ? 'neutral' : ''}`}>
-                <CheckCircle2 size={24} aria-hidden="true" />
-                <div><b>{recommended ? `${recommended.label} is recommended` : 'No recommendation'}</b>{verdict}</div>
+              <div className="route-cards rp-cards">
+                {routes.map((r) => (
+                  <RouteCard key={r.label} route={r} selected={r.label === activeLabel} onSelect={select} cardRef={(el) => { if (el) cardRefs.current[r.label] = el; else delete cardRefs.current[r.label] }} />
+                ))}
               </div>
-              {result.warnings.map((w) => <Notice kind="warn" key={w}>{w}</Notice>)}
-
-              <div className="route-cards">
-              {routes.map((r) => {
-                const rec = r.recommendation === 'Recommended'
-                const st = DAMAGE_STATE[r.damage_level]
-                return (
-                  <article key={r.label} className={`route-card ${selected === r.label ? 'on' : ''} ${rec ? 'rec' : ''}`} style={{ '--c': ROUTE_LINE[r.recommendation], '--ink-c': ROUTE_INK[r.recommendation] }}
-                    onClick={() => setSelected(r.label)} role="button" tabIndex={0} aria-pressed={selected === r.label}
-                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setSelected(r.label)}>
-                    <header>
-                      <h3><span className="letter">{r.label.replace('Route ', '')}</span>{r.label}</h3>
-                      <span className="route-pill">{rec && <Star size={14} aria-hidden="true" fill="currentColor" />}{rec ? 'Recommended' : r.recommendation === 'Avoid' ? 'High risk · avoid' : 'Alternative'}</span>
-                    </header>
-                    <div className="route-metrics">
-                      <div><b>{r.distance_km} km</b><span>Distance</span></div>
-                      <div><b>{Math.round(r.duration_min)} mins</b><span>Travel time</span></div>
-                      <div><b style={{ color: STATE_INK[st] }}>{r.risk_percent != null ? `${r.risk_percent}%` : 'Unknown'}</b><span>{RISK_WORD[r.damage_level]}</span></div>
-                    </div>
-                    <div className="coverage" title="Share of this route (by length) that RoadMind has condition data for">
-                      <div className="coverage-bar"><i style={{ width: `${Math.round(r.data_coverage * 100)}%`, background: STATE_COLORS[st] }} /></div>
-                      <span className="small muted">Condition data on {Math.round(r.data_coverage * 100)}%{r.unknown_km > 0 ? ` · ${r.unknown_km} km no data` : ''}</span>
-                    </div>
-                    <p className="small" style={{ margin: '10px 0 0' }}>{r.reason}</p>
-                  </article>
-                )
-              })}
-              </div>
-
-              <div className="card card-flush">
-                <h3 style={{ padding: '20px 24px 0' }}>Route comparison</h3>
-                <div className="table-wrap">
-                  <table className="data">
-                    <thead><tr><th>Route</th><th className="num">Distance</th><th className="num">Travel Time</th><th className="num">Road Risk</th><th>Recommendation</th></tr></thead>
-                    <tbody>
-                      {routes.map((r) => (
-                        <tr key={r.label} className={`clickable ${selected === r.label ? 'selected' : ''}`} onClick={() => setSelected(r.label)}>
-                          <td><b>{r.label}</b></td>
-                          <td className="num">{r.distance_km} km</td>
-                          <td className="num">{Math.round(r.duration_min)} mins</td>
-                          <td className="num">{r.risk_percent != null ? `${r.risk_percent}%` : 'Unknown'}</td>
-                          <td><span className="route-pill" style={{ '--c': ROUTE_LINE[r.recommendation], '--ink-c': ROUTE_INK[r.recommendation] }}>{r.recommendation}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <p className="note" style={{ margin: 0 }}>{result.disclaimer} Routes come from {result.provider === 'network' ? "RoadMind's graph of the complete OpenStreetMap road network" : 'OpenStreetMap routing (OSRM)'}.</p>
+              <ComparisonTable routes={routes} selected={activeLabel} onSelect={select} />
+              <p className="note rp-note">{result.disclaimer}</p>
+              <p className="note rp-note"><CircleHelp size={14} aria-hidden="true" /> {providerNote}</p>
             </>
           )}
           {!result && !busy && !error && (
-            <div className="card empty"><RouteIcon size={40} aria-hidden="true" style={{ color: 'var(--brand)', opacity: 0.6 }} /><p style={{ marginTop: 10 }}>Choose a start and a destination to compare routes by distance, travel time and road condition.</p></div>
+            <div className="card empty"><RouteIcon size={40} aria-hidden="true" style={{ color: 'var(--brand)', opacity: 0.6 }} /><p style={{ marginTop: 10 }}>Choose a start and a destination to compare routes by traffic, road condition and verified road blockages.</p></div>
           )}
         </div>
       </div>
+      <div className="sr-only" role="status" aria-live="polite">{announce}</div>
     </div>
   )
 }

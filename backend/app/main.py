@@ -10,10 +10,10 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from roadmind_ai.detection import load_detector
@@ -22,7 +22,8 @@ from roadmind_ai.prediction.train import train as train_risk_model
 
 from .config import REPO_ROOT, Settings, load_settings
 from .database import Base, ensure_schema, make_engine, make_session_factory
-from .routers import analytics, auth, maintenance, network, reports, roads, routes, staff, system, users
+from .errors import SERVER_ERROR, error_detail, request_id
+from .routers import analytics, auth, emergency, events, maintenance, mapdata, network, reports, roads, routes, staff, system, users
 from .services.osm import ensure_network
 from .services.routing.engine import RouteEngine
 from .services.accounts import purge_legacy_admins
@@ -30,6 +31,20 @@ from .services.seed import seed_demo
 from .services.state import AppState
 
 log = logging.getLogger("roadmind")
+
+
+def _configure_logging() -> None:
+    """uvicorn only sets up its own loggers: without this, RoadMind's own messages (login steps, mail delivery, real
+    errors) at INFO level would be silently dropped. Messages still propagate, so tests and other handlers see them."""
+    root = logging.getLogger("roadmind")
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S"))
+        root.addHandler(handler)
+    root.setLevel(logging.INFO)
+
+
+_configure_logging()
 
 DESCRIPTION = """
 **RoadMind AI** detects road damage in photos, scores its severity, predicts which roads are likely to
@@ -88,10 +103,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="RoadMind AI", version="1.0.0", description=DESCRIPTION, lifespan=lifespan, docs_url="/api/docs", redoc_url="/api/redoc", openapi_url="/api/openapi.json")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],  # Vite dev server
+        allow_origins=settings.cors_origins,  # the Vite dev server ports (and ROADMIND_CORS_ORIGINS); never "*"
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request: Request, exc: Exception):
+        """Anything not handled below (a database that is down, a bug): the full error goes to the log with a request id;
+        the browser gets a JSON body with the same id - never an empty 500 and never the internals."""
+        rid = request_id("ERR")
+        log.error("Unhandled error | Request ID: %s | %s %s | %s: %s", rid, request.method, request.url.path, type(exc).__name__, exc, exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": error_detail(SERVER_ERROR, "server_error", rid)})
 
     @app.middleware("http")
     async def security_headers(request, call_next):
@@ -107,8 +130,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     app.add_middleware(GZipMiddleware, minimum_size=1000)  # the network payload is large and compresses well
-    for r in (auth, users, reports, roads, network, maintenance, staff, routes, analytics, system):
+    for r in (auth, users, reports, events, mapdata, emergency, roads, network, maintenance, staff, routes, analytics, system):
         app.include_router(r.router, prefix="/api")
+    app.include_router(auth.admin_router, prefix="/api")  # POST /api/admin/login
 
     app.mount("/media", StaticFiles(directory=settings.media_dir), name="media")
     if settings.sample_dir.exists():
@@ -126,7 +150,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             candidate = (dist / path).resolve()
             if path and dist.resolve() in candidate.parents and candidate.is_file():
                 return FileResponse(candidate)
-            return FileResponse(dist / "index.html")
+            # the app shell is never cached or kept in the back/forward cache: after a logout the Back button must run the route
+            # guards again instead of resurrecting a signed-in page (the hashed /assets files stay cacheable)
+            return FileResponse(dist / "index.html", headers={"Cache-Control": "no-store"})
     else:
         @app.get("/", include_in_schema=False)
         def root():

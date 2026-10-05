@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, KeyRound, ShieldCheck, UserPlus } from 'lucide-react'
 import { Link, Navigate } from 'react-router-dom'
 import { homeOf, useAuth } from '../../auth'
-import { Logo, Notice } from '../../components'
+import { BackButton, Logo, Notice } from '../../components'
 
 /**
  * /admin/portal - the front door of the Administration Portal. Two clearly different choices: sign in to an existing
@@ -15,7 +15,10 @@ export default function AdminPortal() {
     <div className="portal portal-admin portal-home">
       <div className="portal-bg" aria-hidden="true" />
       <header className="portal-top">
-        <Link to="/" aria-label="RoadMind AI - back to role selection" className="portal-brand"><Logo dark /><small>ADMINISTRATION PORTAL</small></Link>
+        <div className="portal-top-left">
+          <BackButton tone="dark" to="/welcome" />
+          <Link to="/welcome" aria-label="RoadMind AI - back to role selection" className="portal-brand"><Logo dark /><small>ADMINISTRATION PORTAL</small></Link>
+        </div>
         <span className="portal-chip"><ShieldCheck size={14} aria-hidden="true" /> Authorized access</span>
       </header>
 
@@ -58,7 +61,7 @@ export default function AdminPortal() {
         <p className="portal-home-fine">
           New accounts only start as a <strong>request</strong>: the email address is verified first, then an existing administrator approves it.
         </p>
-        <Link className="portal-back" to="/"><ArrowLeft size={15} aria-hidden="true" /> Back to User/Admin Selection</Link>
+        <Link className="portal-back" to="/welcome"><ArrowLeft size={15} aria-hidden="true" /> Back to User/Admin Selection</Link>
       </main>
 
       <footer className="portal-foot">Authorized personnel only. Sign-in attempts are rate-limited and sessions expire automatically.</footer>

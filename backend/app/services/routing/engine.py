@@ -52,6 +52,11 @@ class RouteAssessment:
     effective_risk: float  # known stretches + neutral prior for the rest; used only for ranking
     coverage: float  # share of the route (by length) that has RoadMind data
     roads: list[RoadOnRoute] = field(default_factory=list)
+    # the same, split into its two ingredients (0..1): current road damage (severity) and predicted deterioration
+    known_damage: float | None = None
+    known_pred: float | None = None
+    effective_damage: float = 0.0
+    effective_pred: float = 0.0
 
 
 def damage_label(risk: float, cfg: RoutingConfig) -> str:
@@ -144,15 +149,52 @@ class RouteEngine:
         samples = densify(candidate.geometry, step)
         return self._match_samples(index.candidates(samples, JUNCTION_TOLERANCE_M, self.cfg.match_radius_m))
 
-    def _assess(self, candidate: Candidate, index: SegmentIndex, info: dict[int, dict], prior: float) -> RouteAssessment:
+    def _condition_context(self, db: Session) -> tuple[dict[int, dict], SegmentIndex, float, dict[str, float]]:
+        """What RoadMind knows about road condition: per-road facts (only roads that HAVE data), a spatial index over them and
+        the neutral prior used for stretches without data (the average of the roads that do have data - neither good nor bad)."""
+        known_roads = list(db.scalars(select(Road).where(Road.has_data.is_(True))))
+        preds = latest_predictions(db, [r.id for r in known_roads]) if known_roads else {}
+        share = self.cfg.severity_share
+        info = {}
+        for r in known_roads:
+            pred = preds[r.id].risk if r.id in preds else 0.0
+            sev = r.current_severity / 100.0
+            info[r.id] = {
+                "name": r.name,
+                "severity": r.current_severity,
+                "level": level_for(r.current_severity, self.settings.severity.level_thresholds),
+                "risk": share * sev + (1 - share) * pred,
+                "sev": sev,
+                "pred": pred,
+            }
+        index = SegmentIndex([(r.id, r.geometry) for r in known_roads])
+        if self.cfg.unknown_road_risk is not None:
+            prior = float(self.cfg.unknown_road_risk)
+            priors = {"sev": prior, "pred": prior}
+        elif info:
+            prior = float(np.mean([v["risk"] for v in info.values()]))
+            priors = {"sev": float(np.mean([v["sev"] for v in info.values()])), "pred": float(np.mean([v["pred"] for v in info.values()]))}
+        else:
+            prior = FALLBACK_PRIOR
+            priors = {"sev": FALLBACK_PRIOR, "pred": FALLBACK_PRIOR}
+        return info, index, prior, priors
+
+    def _assess(self, candidate: Candidate, index: SegmentIndex, info: dict[int, dict], prior: float, priors: dict[str, float] | None = None) -> RouteAssessment:
         chosen = self._road_samples(candidate, index, info)
         n = len(chosen)
         if n == 0:
-            return RouteAssessment(None, prior, 0.0)
+            return RouteAssessment(None, prior, 0.0, effective_damage=prior, effective_pred=prior)
         known = [c for c in chosen if c is not None]
         coverage = len(known) / n
         known_risk = _blend(np.array([info[c]["risk"] for c in known])) if known else None
         effective = _blend(np.array([info[c]["risk"] if c is not None else prior for c in chosen]))
+        priors = priors or {"sev": prior, "pred": prior}
+        sev = lambda c: info[c].get("sev", info[c]["risk"])  # noqa: E731  (hand-made `info` dicts may carry only the combined risk)
+        pred = lambda c: info[c].get("pred", info[c]["risk"])  # noqa: E731
+        known_damage = _blend(np.array([sev(c) for c in known])) if known else None
+        known_pred = _blend(np.array([pred(c) for c in known])) if known else None
+        effective_damage = _blend(np.array([sev(c) if c is not None else priors["sev"] for c in chosen]))
+        effective_pred = _blend(np.array([pred(c) if c is not None else priors["pred"] for c in chosen]))
 
         counts: dict[int, int] = {}
         order: list[int] = []
@@ -165,7 +207,11 @@ class RouteEngine:
             for rid in order
             if counts[rid] >= 2  # a single stray sample at a junction is not "on" the road
         ]
-        return RouteAssessment(None if known_risk is None else round(known_risk, 4), round(effective, 4), coverage, roads)
+        return RouteAssessment(
+            None if known_risk is None else round(known_risk, 4), round(effective, 4), coverage, roads,
+            known_damage=None if known_damage is None else round(known_damage, 4), known_pred=None if known_pred is None else round(known_pred, 4),
+            effective_damage=round(effective_damage, 4), effective_pred=round(effective_pred, 4),
+        )
 
     # ------------------------------------------------------------------ public
     def recommend(
@@ -180,23 +226,7 @@ class RouteEngine:
         persist: bool = True,
         source: str = "user",
     ) -> dict:
-        known_roads = list(db.scalars(select(Road).where(Road.has_data.is_(True))))
-        preds = latest_predictions(db, [r.id for r in known_roads]) if known_roads else {}
-        share = self.cfg.severity_share
-        info = {}
-        for r in known_roads:
-            pred = preds[r.id].risk if r.id in preds else 0.0
-            info[r.id] = {
-                "name": r.name,
-                "severity": r.current_severity,
-                "level": level_for(r.current_severity, self.settings.severity.level_thresholds),
-                "risk": share * r.current_severity / 100.0 + (1 - share) * pred,
-            }
-        index = SegmentIndex([(r.id, r.geometry) for r in known_roads])
-        if self.cfg.unknown_road_risk is not None:
-            prior = float(self.cfg.unknown_road_risk)
-        else:
-            prior = float(np.mean([v["risk"] for v in info.values()])) if info else FALLBACK_PRIOR
+        info, index, prior, priors = self._condition_context(db)
 
         provider = self._provider(db, origin, destination)
         candidates = provider.routes(origin, destination, self.cfg.max_alternatives)
@@ -204,7 +234,7 @@ class RouteEngine:
             raise RoutingUnavailable("No route could be found between these points.")
 
         w = normalise_weights(weights, self.cfg.weights)
-        assessments = [self._assess(c, index, info, prior) for c in candidates]
+        assessments = [self._assess(c, index, info, prior, priors) for c in candidates]
         min_d = min(c.distance_m for c in candidates) or 1.0
         min_t = min(c.duration_s for c in candidates) or 1.0
         ref = max(self.cfg.detour_reference, 1e-6)

@@ -1,0 +1,7 @@
+/* The "Emergency Route" entry button (Home hero + Route Planner). Namespaced em-cta*; uses the app's tokens. */
+.btn.em-cta { gap: 10px; color: #fff; border-color: transparent; background: linear-gradient(135deg, #ff5a4f 0%, #e11d48 100%); box-shadow: 0 14px 26px -12px rgba(225, 29, 72, 0.75); }
+.btn.em-cta:hover { background: linear-gradient(135deg, #ff6b61 0%, #ea2a55 100%); border-color: transparent; transform: translateY(-1px); box-shadow: 0 18px 30px -12px rgba(225, 29, 72, 0.85); }
+.btn.em-cta:focus-visible { outline: 3px solid rgba(225, 29, 72, 0.4); outline-offset: 3px; }
+.em-cta-ico { font-size: 1.15em; line-height: 1; }
+.em-cta-new { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.07em; padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.95); color: #c01046; }
+.btn.em-cta.em-cta-block { width: 100%; margin-top: 10px; }

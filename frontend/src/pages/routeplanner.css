@@ -1,0 +1,152 @@
+/* ==========================================================================
+   Route planner (pages/RoutePlanner.jsx + pages/routes/*). Everything here is namespaced rp-*.
+   Builds on the shared route-layout / route-card / banner / suggest classes of styles.css and uses its tokens.
+   Route colours: blue = recommended, grey = alternative, red = avoid (same as the map lines).
+   ========================================================================== */
+
+:root { --rp-blue: #2563eb; --rp-blue-ink: #1d4ed8; --rp-grey: #8791b5; --rp-red: #d92d20; }
+
+/* ---- layout: form | map, with the status / alert column under the form; results below ---- */
+.route-layout.rp-layout { grid-template-areas: "form map" "status map" "results results"; grid-template-rows: auto 1fr auto; }
+.rp-status { grid-area: status; min-width: 0; scroll-margin-top: calc(var(--topbar) + 10px); }
+.route-map-col { scroll-margin-top: calc(var(--topbar) + 10px); }
+.rp-layout > * { min-width: 0; }
+.route-results { scroll-margin-top: calc(var(--topbar) + 12px); }
+
+.rp-map { height: 640px; border-radius: var(--r-lg); overflow: hidden; border: 1px solid rgba(231, 227, 248, 0.9); box-shadow: var(--shadow); background: #e9ecf4; }
+.rp-map .rm-map { border-radius: inherit; }
+
+/* ---- the "check" row and the score explanation (left column) ---- */
+.check.rp-alts { margin: 6px 0 14px; }
+.rp-alts input { flex: none; }
+.rp-explain { margin: 0 0 18px; border: 1.5px solid var(--line); border-radius: 16px; background: var(--surface-2); }
+.rp-explain summary { cursor: pointer; font-weight: 650; display: flex; align-items: center; gap: 8px; padding: 12px 16px; list-style: none; border-radius: 16px; }
+.rp-explain summary::-webkit-details-marker { display: none; }
+.rp-explain summary .rp-chev { margin-left: auto; transition: transform 0.15s; color: var(--muted); }
+.rp-explain[open] summary .rp-chev { transform: rotate(180deg); }
+.rp-explain-body { padding: 0 16px 14px; }
+.rp-explain-body ul { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.rp-explain-body li b { display: block; font-size: 0.88rem; }
+.rp-explain-body li span { font-size: 0.82rem; color: var(--muted); }
+.rp-explain-body p { margin: 8px 0 0; }
+
+/* ---- "planning around ..." note (from the map page) ---- */
+.rp-avoid { margin-bottom: 18px; font-size: 0.9rem; font-weight: 600; }
+.rp-avoid > button { flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin: -3px -6px -3px 0; padding: 0; border: 0; border-radius: 9px; background: transparent; color: inherit; cursor: pointer; opacity: 0.75; }
+.rp-avoid > button:hover { opacity: 1; background: rgba(60, 36, 184, 0.1); }
+
+/* ---- status line ---- */
+.rp-status-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm); }
+.rp-status-text { display: flex; align-items: center; gap: 9px; font-size: 0.86rem; font-weight: 650; min-width: 0; }
+.rp-status-text span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.rp-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--nodata); }
+.rp-dot.is-live { background: var(--good); box-shadow: 0 0 0 4px rgba(23, 166, 115, 0.2); }
+.rp-status-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rp-spin { animation: spin 0.8s linear infinite; }
+
+/* ---- summary banner + message list ---- */
+.banner.rp-banner { background: linear-gradient(135deg, #eaf1ff, #f6f9ff); border-color: #c7d9fb; color: #1e3a8a; }
+.banner.rp-banner.is-warn { background: linear-gradient(135deg, #fff4e0, #fffaf0); border-color: #f3dca2; color: #7a5300; }
+.banner.rp-banner.is-neutral { background: var(--brand-soft); border-color: #d9ceff; color: var(--brand-ink); }
+.rp-messages > .alert { margin: 0 0 8px; padding: 10px 14px; font-size: 0.88rem; font-weight: 600; border-radius: 14px; }
+.rp-messages > .alert:last-child { margin-bottom: 0; }
+
+/* ---- the blocked-road alert ---- */
+.rp-alert { border: 2px solid #ee8f89; border-radius: var(--r-lg); background: linear-gradient(180deg, #fff1f0, #fff 70%); padding: 20px; box-shadow: 0 18px 40px -22px rgba(217, 45, 32, 0.55); }
+.rp-alert-title { margin: 0 0 6px; font-size: clamp(1.45rem, 3.4vw, 1.9rem); font-weight: 850; letter-spacing: -0.02em; color: var(--critical-ink); }
+.rp-alert-msg { margin: 0 0 12px; font-weight: 650; color: #6b1210; }
+.rp-blockers { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.rp-blocker { background: #fff; border: 1px solid #f3c3c1; border-left: 5px solid var(--rp-red); border-radius: 12px; padding: 10px 12px; }
+.rp-blocker p { margin: 4px 0 0; }
+.rp-blocker-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.rp-blocker-tag { font-size: 0.74rem; font-weight: 800; letter-spacing: 0.04em; color: #fff; background: var(--rp-red); border-radius: 999px; padding: 3px 10px; }
+.rp-blocker-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; color: var(--ink-2); }
+.rp-alt { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; }
+.rp-alt h3 { margin: 0 0 4px; display: flex; align-items: center; gap: 8px; color: var(--rp-blue-ink); }
+.rp-alt-none { background: #fff8e8; border-color: #f3dca2; }
+.rp-alt-none h3 { color: #7a5300; }
+.rp-alt-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.rp-alt-facts div { background: var(--surface-2); border-radius: 12px; padding: 8px 12px; }
+.rp-alt-facts dt { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; color: var(--muted); }
+.rp-alt-facts dd { margin: 0; font-weight: 800; font-size: 1.05rem; }
+.rp-alt-reason { margin: 0 0 12px; }
+.rp-alert-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.rp-alert-actions .btn { flex: 1 1 auto; }
+.rp-alert-actions .btn-primary { background: var(--rp-blue); box-shadow: 0 12px 24px -12px rgba(37, 99, 235, 0.8); }
+.rp-alert-actions .btn-primary:hover { background: var(--rp-blue-ink); }
+
+/* ---- route cards ---- */
+.route-cards.rp-cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); }
+.rp-card:focus-visible, .rp-table tbody tr:focus-visible { outline: 3px solid rgba(37, 99, 235, 0.5); outline-offset: 3px; }
+.rp-card.is-rec { background: linear-gradient(180deg, #f1f6ff, #fff 62%); }
+.rp-card.is-blocked:not(.on) { border-color: #f3c3c1; }
+.rp-card header { flex-wrap: wrap; }
+.rp-card h3 { flex-wrap: wrap; }
+.rp-pill { letter-spacing: 0.05em; font-weight: 800; }
+.rp-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 0.68rem; font-weight: 750; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px 8px; }
+.rp-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.rp-metrics > div { background: var(--surface-2); border-radius: 14px; padding: 9px 11px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+.rp-metrics > div > .rp-k { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+.rp-metrics > div > b { font-size: 1.05rem; letter-spacing: -0.02em; }
+.rp-of { font-size: 0.72rem; color: var(--muted); font-weight: 650; margin-left: 1px; }
+.rp-metrics .badge { white-space: normal; }
+.rp-delay { display: block; font-size: 0.72rem; font-weight: 700; color: var(--high-ink); }
+.rp-hint { font-size: 0.7rem; color: var(--muted); line-height: 1.25; }
+.rp-blocked-yes { color: var(--critical-ink); }
+.rp-blocked-no { color: var(--good-ink); }
+.rp-reason { margin: 10px 0 0; }
+.rp-unverified { margin: 8px 0 0; color: var(--moderate-ink); font-weight: 600; }
+
+.rp-bars { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 5px; }
+.rp-bars li { display: grid; grid-template-columns: 116px minmax(0, 1fr) 30px 40px; align-items: center; gap: 8px; font-size: 0.76rem; }
+.rp-bar-name { color: var(--ink-2); font-weight: 650; white-space: nowrap; }
+.rp-bar-track { height: 7px; border-radius: 99px; background: var(--line); overflow: hidden; display: block; }
+.rp-bar-track i { display: block; height: 100%; border-radius: 99px; }
+.rp-bar-track.is-na { background: repeating-linear-gradient(45deg, #e7e3f8 0 4px, #f4f2fc 4px 8px); }
+.rp-bar-val { text-align: right; font-variant-numeric: tabular-nums; }
+.rp-bar-w { font-style: normal; color: var(--muted); font-size: 0.7rem; text-align: right; }
+
+/* ---- comparison table + notes ---- */
+table.data.rp-table td, table.data.rp-table th { padding: 12px 14px; }
+table.data.rp-table tbody th.rp-row-head { font-weight: 650; text-align: left; white-space: nowrap; }
+.rp-table .badge { white-space: nowrap; }
+.rp-table .route-pill { white-space: nowrap; }
+.rp-note { display: flex; align-items: flex-start; gap: 8px; }
+.rp-note svg { flex: none; margin-top: 3px; }
+
+/* ---- route chips + colour key: over the map on wide screens, under it on phones ---- */
+.rp-maplegend.is-overlay { position: absolute; left: 10px; bottom: 44px; max-width: calc(100% - 66px); padding: 8px 10px; border-radius: 14px; font-size: 0.72rem; line-height: 1.4; font-weight: 600; color: var(--ink); }
+.rp-maplegend.is-below { display: none; margin-top: 12px; padding: 12px 14px; border-radius: 18px; font-size: 0.8rem; font-weight: 600; box-shadow: var(--shadow-sm); }
+.rp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 3px; border-radius: 999px; border: 2px solid transparent; background: #fff; color: var(--ink); font: 700 0.72rem var(--font); cursor: pointer; box-shadow: var(--shadow-sm); }
+.rp-chip i { width: 20px; height: 20px; border-radius: 50%; background: var(--c); color: #fff; display: grid; place-items: center; font-style: normal; font-size: 0.7rem; font-weight: 800; }
+.rp-chip.on { border-color: var(--c); }
+.rp-chip:focus-visible { outline: 3px solid rgba(37, 99, 235, 0.5); outline-offset: 2px; }
+.is-below .rp-chip { height: 32px; font-size: 0.8rem; border-color: var(--line-strong); }
+.is-below .rp-chip.on { border-color: var(--c); }
+.rp-legend-line { margin: 7px 0 0; color: var(--ink-2); }
+.rp-legend-line span { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; color: var(--ink); }
+.rp-legend-line span::before { content: ''; width: 14px; height: 5px; border-radius: 3px; background: var(--c); }
+
+/* ---- under the map ---- */
+.rp-key { list-style: none; margin: 12px 2px 6px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); }
+.rp-key li { display: flex; align-items: center; gap: 7px; }
+.rp-key-pin { width: 24px; height: 24px; border-radius: 50%; background: var(--c); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(15, 26, 60, 0.35); display: grid; place-items: center; font-size: 0.7rem; color: #fff; font-weight: 800; }
+.rp-key-note { margin: 0 2px; }
+
+/* ---- responsive ---- */
+@media (max-width: 1180px) {
+  .route-layout.rp-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "form" "map" "status" "results"; grid-template-rows: auto; }
+  .rp-map { height: 460px; }
+}
+@media (max-width: 820px) {
+  .rp-map { height: 400px; }
+}
+@media (max-width: 520px) {
+  .rp-map { height: 360px; border-radius: 20px; }
+  .rp-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rp-bars li { grid-template-columns: 112px minmax(0, 1fr) 28px 38px; gap: 6px; font-size: 0.74rem; }
+  .rp-alert { padding: 16px; }
+  .rp-maplegend.is-overlay { display: none; }
+  .rp-maplegend.is-below { display: block; }
+}

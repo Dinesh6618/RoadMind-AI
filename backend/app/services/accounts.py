@@ -43,7 +43,7 @@ def status_of(user: User) -> str:
 
 # What a person who is refused at login is told (after the correct password only, so this reveals nothing to strangers).
 STATUS_MESSAGES = {
-    "PENDING_EMAIL_VERIFICATION": ("email_not_verified", "Your email address has not been verified yet. Open the verification link we emailed you, or request a new one."),
+    "PENDING_EMAIL_VERIFICATION": ("email_not_verified", "Please verify your email before logging in. Open the verification link we emailed you, or request a new one."),
     "PENDING_ADMIN_APPROVAL": ("pending_admin_approval", "Your account is waiting for administrator approval. You can sign in as soon as an administrator approves it."),
     "REJECTED": ("rejected", "Your account request was not approved. Please contact an administrator."),
     "SUSPENDED": ("suspended", "This account has been suspended. Please contact an administrator."),

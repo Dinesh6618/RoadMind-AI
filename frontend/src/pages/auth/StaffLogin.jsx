@@ -4,6 +4,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { PORTALS, homeOf, useAuth } from '../../auth'
 import { ErrorBox, Notice, PasswordInput, Spinner } from '../../components'
+import { readFlash } from '../../flash'
 import PortalLayout from './PortalLayout'
 
 const TITLE = 'Authorized Access'
@@ -27,6 +28,7 @@ export default function StaffLogin() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [resent, setResent] = useState(null)
+  const flash = readFlash() // "You have been logged out successfully." right after a staff logout
 
   if (setup.loading) return <PortalLayout title={TITLE} subtitle={SUBTITLE}><Spinner /></PortalLayout>
   // first run with nobody created yet -> the setup page; but once an account exists (even if its email is not verified
@@ -62,6 +64,7 @@ export default function StaffLogin() {
   return (
     <PortalLayout title={TITLE} subtitle={SUBTITLE} back="/admin/portal">
       {location.state?.notice && <Notice kind="ok">{location.state.notice}</Notice>}
+      {flash && !location.state?.notice && <Notice kind="ok">{flash}</Notice>}
       {setup.required && !setup.allowedHere && !setup.pending && (
         <Notice kind="warn">No administrator account exists yet. It has to be created once, on the computer that runs RoadMind.</Notice>
       )}

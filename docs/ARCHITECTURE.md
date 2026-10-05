@@ -1,14 +1,26 @@
 # Architecture, data model and formulas
 
-## The principle: complete base network + intelligence overlay
+## The principle: a real-world map underneath, RoadMind intelligence on top
 
 ```
-OpenStreetMap  ->  roads table (every segment, state UNKNOWN until RoadMind has data)  ->  Leaflet map
-                                                  ^
-RoadMind condition layer: reports -> severity -> risk -> priority  (only for roads with data)
+                 GOOGLE MAPS (browser)                          OpenStreetMap tiles (fallback when there is no Google key)
+        complete real road network, names, live traffic layer  -> the map ALWAYS shows every real road
+                                |
+              RoadMind overlays, fetched separately - their absence never hides the map
+   /api/road-conditions   roads that HAVE data: damage, severity, risk, maintenance   (colour only there; every other road keeps the
+   /api/road-events       blockages, closures, construction... (verified / pending)    normal base-map look = "condition data unavailable")
+                                |
+              SMART ROUTES  POST /api/routes/calculate
+   Google Routes API (traffic-aware alternatives)  +  road condition  +  verified events  ->  RoadMind Route Risk Score
 ```
 
-* The **road network is the base layer**: `services/osm.py` imports every drivable OpenStreetMap way, cuts it at junctions into *segments* and stores them in `roads`. A freshly imported segment has `has_data = false`, no severity, no prediction and no priority - it is **UNKNOWN**.
+* **The base map is never built from RoadMind's own road table.** `frontend/src/maps/MapCanvas.jsx` renders the map as soon as the map engine is ready - Google Maps when a browser key exists, otherwise Leaflet with OpenStreetMap tiles - and only then asks the backend for overlays. Zero RoadMind records, an empty database or a failing RoadMind API leave the real roads fully visible; the status box says "RoadMind data: No data for this area".
+* **Nothing live is invented.** Traffic is Google's (Traffic Layer in the browser; speed readings from the Routes API on the server). Without Google the answer says "Live traffic unavailable". Events come only from reports and staff; every event expires.
+* The older **OpenStreetMap import** (`services/osm.py` → `roads` table) still exists: it gives reports a road to attach to, feeds RoadMind's offline routing and is used to match Google routes to roads that have condition data. It is no longer the source of the map.
+
+### The roads table (RoadMind's own record of roads it has data about)
+
+* `services/osm.py` imports drivable OpenStreetMap ways, cuts them at junctions into *segments* and stores them in `roads`. A freshly imported segment has `has_data = false`, no severity, no prediction and no priority - it is **UNKNOWN**.
 * **RoadMind is the overlay**: reports are attached to a segment; only then does the segment get a current severity, a stored prediction and a maintenance priority (`has_data = true`).
 * **UNKNOWN is a state, not a score.** Nothing downstream treats it as good or as damaged: the map draws it grey, the API returns it without condition fields, analytics and the maintenance list cover only roads with data, and the route engine reports it as unknown (see below).
 * A road drops back to UNKNOWN when its last report is older than `road_condition.history_window_days` (180 d) and it has no repair within that window.
@@ -51,7 +63,9 @@ road_condition_history  N:1 roads      severity snapshots over time (report / re
 repairs             N:1 roads          planned / completed, dates, notes
 predictions         N:1 roads          risk probability, level, model name/version, input features, explanation
 maintenance_priorities  1:1 roads      priority score, category, action, status, notes, score components
-route_queries       1:N route_options  every comparison asked, provider, weights used
+road_events         N:1 roads (optional) blockages, closures, construction, accidents, flooding, severe damage: point + radius, type, description,
+                                       verification_status PENDING|VERIFIED|REJECTED, status ACTIVE|RESOLVED|EXPIRED, expires_at, evidence photo
+route_queries       1:N route_options  every comparison asked, provider (network | osrm | google), weights used
 route_options                          per-route distance, time, effective risk, data coverage, score, label, geometry
 ```
 
@@ -171,9 +185,44 @@ score            = w_distance × extra_distance + w_time × extra_time + w_damag
 * The response shows `risk` = `known_risk` (null when coverage is below 15 %, damage level "Unknown"), `data_coverage` and the unknown kilometres. A route is only ever labelled *Avoid* on evidence (risk ≥ 60 % on at least 15 % coverage), and when mean coverage is below 15 % the summary says RoadMind cannot rank the routes by damage risk and suggests one on distance/time alone.
 * Labels: lowest score = *Recommended*; clearly worse high-risk routes = *Avoid*; the rest = *Alternative*. Damage levels: Low < 25 %, Moderate < 50 %, High < 70 %, Severe ≥ 70 %.
 
+### Road events - `services/events.py`, `routers/events.py`
+
+A `road_events` row is a place (point + radius, optionally the blocked stretch) and a time window: `event_type` (ROAD_BLOCKED, ROAD_CLOSED, TEMPORARY_CLOSURE, CONSTRUCTION, ACCIDENT, FLOODED, SEVERE_DAMAGE, ROAD_REOPENED), `description`, reporter, `created_at`, `expires_at`, optional photo, and two state fields: `verification_status` (PENDING → VERIFIED / REJECTED) and `status` (ACTIVE → RESOLVED / EXPIRED).
+
+* Community reports (`POST /road-reports`) start **PENDING**; staff-entered events (administrators and road-maintenance staff) are **VERIFIED** at once. An unverified report stops counting after `events.pending_hours`; every event expires (`events.default_hours` per type, `events.max_hours` cap); staff can resolve it earlier or post a `ROAD_REOPENED` record, which resolves the live blockages around that point.
+* Only a **VERIFIED, ACTIVE, unexpired** `ROAD_BLOCKED / ROAD_CLOSED / TEMPORARY_CLOSURE` event makes a route *AVOID*; other verified events (construction, accident, flooding, severe damage) raise the risk score; an unverified report only nudges it (`route_risk.unverified_blockage_risk`).
+* A route is "on" an event when it passes within the event's radius (default 50 m) of the event point or of its blocked stretch (`route_hits`: point-to-polyline distance; works on Google, OSRM and RoadMind polylines alike).
+
+### Smart routing - `services/routing/intelligence.py`, `google.py`
+
+```
+candidates   Google Routes API computeRoutes: DRIVE, routingPreference TRAFFIC_AWARE_OPTIMAL, computeAlternativeRoutes,
+             extraComputations TRAFFIC_ON_POLYLINE  (field mask: distance, duration, staticDuration, polyline, speedReadingIntervals)
+             - or, without a key / when Google fails, RoadMind's own routing with traffic = unavailable (never invented)
+traffic      congestion = length-weighted speed risk (NORMAL 0, SLOW 55, TRAFFIC_JAM 100) along the polyline
+             delay      = 100 × min(1, (duration/staticDuration − 1) / 0.5)
+             traffic    = 0.6 × congestion + 0.4 × delay                                   (Normal < 15 · Moderate < 40 · Heavy < 70 · Traffic jam)
+road_damage  blend of current severity of the roads WITH data on the route (neutral prior for the rest)      x100
+predicted    blend of the predicted deterioration risk of those roads                                         x100
+blockage     100 for a verified blockage/closure on the route; construction 60, accident 70, flooding 85; unverified report 35
+risk         = 0.30·traffic + 0.25·road_damage + 0.15·predicted + 0.30·blockage      (unavailable components are dropped and the rest re-normalised)
+rank         = risk + 10 × extra_travel_time        (tie-breaker only: the shortest route is never recommended blindly)
+status       blocked route -> AVOID (unless every route is blocked: the least risky stays RECOMMENDED with a warning);
+             risk ≥ 70 and ≥ 5 points above the best -> AVOID; lowest rank -> RECOMMENDED; the rest ALTERNATIVE
+```
+
+`selected` is the fastest route (what a driver would take without RoadMind); if it is blocked, `alert` carries the 🚧 ROAD BLOCKED notice and the recommended alternative. All weights and thresholds are under `route_risk:` in `config/roadmind.yaml`. RoadMind estimates risk from reports, AI detections and live traffic; it cannot guarantee that a road is physically safe.
+
+### Emergency routes - `services/emergency.py`, `services/routing/emergency.py`
+
+* **Nearby services.** Google Places (New) `searchNearby` (`hospital` / `fire_station` / `police`, ranked by distance) when a server key exists, else OpenStreetMap (`amenity=…` stored places + a live Overpass query). The nearest few get a real travel time from the Google **Route Matrix** (one request, `TRAFFIC_AWARE`) or RoadMind's own routing (no traffic, labelled); results are cached for `emergency.cache_seconds`. Availability fields (`open_now`, `opening_hours`, `has_emergency`) are passed through only when the source states them - RoadMind never infers that a hospital can take patients.
+* **Hard rule, then scoring.** `gather()` (shared with `intelligence.calculate`) produces candidates and per-route facts (traffic, road condition, events). A route with a **verified, live blockage/closure** is `UNAVAILABLE`: not scored, never recommended; if all are closed nothing is recommended. The others: `score = 0.45·travel_time + 0.20·traffic + 0.15·road_damage + 0.10·flood + 0.10·other` (`emergency:` in `config/roadmind.yaml`), where travel_time = `100·min(1, (t/t_fastest − 1)/0.5)`, flood = reported flooding events, other = max(construction/accident/severe-damage events, predicted deterioration risk). Unavailable parts are dropped and the weights re-normalised. The shortest route does not automatically win; the lowest score does.
+* **Monitoring** is split by cost: `POST /emergency/route-status` only compares the route polyline with the live events (database, every ~60 s: BLOCKED / CHANGED / OK); a new `POST /emergency/route` (one Google call) is made only after a BLOCKED / CHANGED answer, or every ~180 s for traffic when Google is configured. The client never polls GPS.
+
 ## Swapping components
 
 * **Detector:** implement `detect(image_bgr) -> DetectionResult` (see `detection/factory.py`); drop YOLO weights at `ai/models/road_damage_yolo.pt` for automatic use.
-* **Routing / map service:** implement `RoutingProvider.routes(origin, destination, max_routes)` in `services/routing/` and return it from `RouteEngine._provider`.
+* **Routing / map service:** implement `RoutingProvider.routes(origin, destination, max_routes)` in `services/routing/` and return it from `RouteEngine._provider` (the Google provider, `GoogleRoutesProvider`, is used first by `intelligence.calculate` when a server key is set).
+* **Map engine:** `frontend/src/maps/` - `MapCanvas` takes plain overlay descriptions (lines, markers, circles), so a Google, Leaflet or any other engine can sit behind it.
 * **Road network source:** `services/osm.py` is the only OpenStreetMap-specific code; any source that yields segments with node ids can feed `import_extract`.
 * **Risk model:** `python -m roadmind_ai.prediction.train` rewrites `ai/models/risk_model.joblib`; keep `FEATURES` in `prediction/features.py` in sync.

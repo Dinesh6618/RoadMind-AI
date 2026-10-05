@@ -9,7 +9,7 @@ const SEV_GRADIENT = {
 }
 
 /** The AI detection result: annotated photo, per-damage list, big severity card and the report's details. */
-export default function ReportResult({ r, onAnother }) {
+export default function ReportResult({ r, onAnother, notice = null }) {
   const det = r.detection
   const sev = r.severity
   const [a, b] = SEV_GRADIENT[sev.level] || SEV_GRADIENT.Low
@@ -21,6 +21,7 @@ export default function ReportResult({ r, onAnother }) {
         <h1>{r.damage_detected ? 'Damage Detected' : 'No Damage Detected'}</h1>
         <p>{sev.description}</p>
       </div>
+      {notice}
 
       <div className="result-grid">
         <div className="stack">

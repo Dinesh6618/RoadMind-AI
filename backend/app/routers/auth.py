@@ -10,6 +10,7 @@ their email address has been verified; the role always comes from the database, 
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -20,6 +21,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..database import utcnow
+from ..errors import AUTH_UNAVAILABLE, error_detail, request_id
 from ..models import PasswordReset, RevokedToken, User
 from ..schemas import (
     AcceptInvite, ForgotPassword, LoginRequest, NewAccount, PasswordChange, PasswordReset as PasswordResetBody,
@@ -33,6 +35,8 @@ from ..services import accounts
 from ..services.mailer import send_email
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+admin_router = APIRouter(prefix="/admin", tags=["Authentication"])  # POST /api/admin/login
+log = logging.getLogger("roadmind.auth")
 
 _setup_limit = RateLimit(10, 60)
 _register_limit = RateLimit(10, 60)
@@ -43,7 +47,7 @@ _resend_limit = RateLimit(5, 60)
 _staff_register_limit = RateLimit(5, 60)
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 
-LOGIN_FAILED = "Incorrect email or password."
+LOGIN_FAILED = "Invalid email or password."
 GENERIC_SENT = "If an account matches, an email with a link has been sent to its address. The link works once and expires soon."
 FORGOT_REPLY = {
     "message": GENERIC_SENT + " (On an installation without an email server the link is written to the server's console and outbox folder instead.)"
@@ -175,41 +179,69 @@ def register(body: NewAccount, request: Request, db: Session = Depends(get_db)):
 
 
 def _portal_login(portal: str, body: LoginRequest, request: Request, db: Session) -> dict:
-    state = request.app.state.app_state
+    """Both doors. Normal failures are answered with their own status (401 wrong credentials, 403 account not usable or
+    wrong door, 429 throttled) and one log line saying which step said no. Anything unexpected - the database is down,
+    a column is missing, a library throws - is logged with the full traceback and answered with a controlled 500 that
+    carries only a request id. The password is never logged."""
+    tag = "ADMIN LOGIN" if portal == "staff" else "USER LOGIN"
     ident = body.identifier.strip().lower()
-    keys = (f"ip:{_client(request)}", f"id:{ident}")
-    if any(state.throttle.blocked(k) for k in keys):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many failed login attempts. Try again in a few minutes.")
-    user = accounts.find_by_identifier(db, body.identifier)
-    ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH)  # same work whether or not the account exists
-    if not (user and ok):
-        for k in keys:
-            state.throttle.record_failure(k)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
+    step = "throttle check"
+    try:
+        state = request.app.state.app_state
+        keys = (f"ip:{_client(request)}", f"id:{ident}")
+        if any(state.throttle.blocked(k) for k in keys):
+            log.warning("[%s] Email: %s | Step: %s | Result: 429 too many failed attempts", tag, ident, step)
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many failed login attempts. Try again in a few minutes.")
+        step = "account lookup"
+        user = accounts.find_by_identifier(db, body.identifier)
+        step = "password verification"
+        ok = verify_password(body.password, user.password_hash if user else DUMMY_HASH)  # same work whether or not the account exists
+        if not (user and ok):
+            for k in keys:
+                state.throttle.record_failure(k)
+            log.warning("[%s] Email: %s | Step: %s | Result: 401 %s", tag, ident, step, "no such account" if user is None else "wrong password")
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, LOGIN_FAILED)
 
-    # The credentials are correct from here on, so it is safe to say precisely why this door says no.
-    # 1-4: account status (email verified? approved? not rejected / suspended?) - whatever door was used.
-    account_state = accounts.status_of(user)
-    if account_state != "ACTIVE":
-        code, message = accounts.STATUS_MESSAGES[account_state]
-        detail = {"message": message, "code": code, "status": account_state}
-        if code == "email_not_verified":
-            detail["message"] = f"Your email address ({accounts.mask_email(user.email)}) has not been verified yet. Open the verification link we emailed you, or request a new one."
-            detail["email"] = user.email
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail)
-    # 5: the role - a staff account does not use the user door and vice versa.
-    actual = portal_of(user.role)
-    if actual != portal:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            {"message": f"This account signs in through {PORTAL_NAME[actual]}.", "code": "wrong_portal", "portal": actual, "login_path": PORTAL_PATH[actual]},
-        )
-    state.throttle.reset(keys[1])
-    if needs_rehash(user.password_hash):  # upgrade old hashes silently, now that we hold the plaintext
-        user.password_hash = hash_password(body.password)
-    user.last_login_at = utcnow()
-    db.commit()
-    return _session(user, state)
+        # The credentials are correct from here on, so it is safe to say precisely why this door says no.
+        # 1-4: account status (email verified? approved? not rejected / suspended?) - whatever door was used.
+        step = "account status"
+        account_state = accounts.status_of(user)
+        if account_state != "ACTIVE":
+            code, message = accounts.STATUS_MESSAGES[account_state]
+            detail = {"message": message, "code": code, "status": account_state}
+            if code == "email_not_verified":
+                detail["message"] = f"Please verify your email before logging in. We sent a link to {accounts.mask_email(user.email)}; open it, or request a new one."
+                detail["email"] = user.email
+            log.info("[%s] Email: %s | Step: %s | Result: 403 %s", tag, ident, step, account_state)
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail)
+        # 5: the role - a staff account does not use the user door and vice versa.
+        step = "role check"
+        actual = portal_of(user.role)
+        if actual != portal:
+            log.info("[%s] Email: %s | Step: %s | Result: 403 role '%s' belongs to the %s door", tag, ident, step, user.role, actual)
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                {"message": f"This account signs in through {PORTAL_NAME[actual]}.", "code": "wrong_portal", "portal": actual, "login_path": PORTAL_PATH[actual]},
+            )
+        step = "session creation"
+        state.throttle.reset(keys[1])
+        if needs_rehash(user.password_hash):  # upgrade old hashes silently, now that we hold the plaintext
+            user.password_hash = hash_password(body.password)
+        user.last_login_at = utcnow()
+        db.commit()
+        session = _session(user, state)
+        log.info("[%s] Email: %s | Result: success | Role: %s", tag, ident, user.role)
+        return session
+    except HTTPException:
+        raise
+    except Exception as exc:  # a genuine server / database failure - never a normal login problem
+        rid = request_id("AUTH")
+        log.error("[%s] Request ID: %s | Email: %s | Step: %s | Error: %s: %s", tag, rid, ident, step, type(exc).__name__, exc, exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # the connection may be gone altogether
+            pass
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, error_detail(AUTH_UNAVAILABLE, "auth_error", rid))
 
 
 @router.post("/login", summary="User portal login (email + password)")
@@ -223,6 +255,25 @@ def staff_login(body: LoginRequest, request: Request, db: Session = Depends(get_
     """For administrators and road-maintenance staff. The password, the account status, the verified email and the role are
     all checked here; the reply says where this role goes next (`home`). Normal users are refused and pointed to /user/login."""
     return _portal_login("staff", body, request, db)
+
+
+ROLE_LABEL = {"admin": "ADMINISTRATOR", "maintenance": "ROAD_MAINTENANCE", "user": "USER"}
+
+
+@admin_router.post("/login", summary="Admin & Road Maintenance login (same check as /auth/staff/login, simpler reply)")
+def admin_login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    """`{email, password}` (or `identifier`) → `{success, message, user: {id, name, email, role}, token, home, ...}`.
+    Exactly the checks of `/auth/staff/login` - 401 wrong credentials, 403 email not verified / pending approval /
+    rejected / suspended / not a staff account, 429 throttled, 500 only for a genuine server failure (with a request id)."""
+    session = _portal_login("staff", body, request, db)
+    u = session["user"]
+    return {
+        **session,
+        "success": True,
+        "message": "Login successful",
+        "user": {"id": str(u["id"]), "name": u["full_name"] or u["username"], "email": u["email"], "role": ROLE_LABEL[u["role"]]},
+        "token": session["access_token"],
+    }
 
 
 @router.post("/staff/register", status_code=201, summary="Request an administrator / maintenance account (needs verification + approval)", dependencies=[Depends(_staff_register_limit)])

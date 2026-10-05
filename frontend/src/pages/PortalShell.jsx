@@ -1,4 +1,4 @@
-import { ClipboardCheck, ExternalLink, FileText, LayoutDashboard, LogOut, Map as MapIcon, Menu, Route as RouteIcon, Settings as SettingsIcon, TrendingUp, User as UserIcon, Users as UsersIcon, Wrench } from 'lucide-react'
+import { ClipboardCheck, ExternalLink, FileText, LayoutDashboard, LogOut, Map as MapIcon, Menu, Route as RouteIcon, Settings as SettingsIcon, TrafficCone, TrendingUp, User as UserIcon, Users as UsersIcon, Wrench } from 'lucide-react'
 import { Suspense, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth'
@@ -15,6 +15,7 @@ const PORTALS = {
       ['/admin/dashboard', 'Dashboard', LayoutDashboard, 'Road conditions, reports and maintenance at a glance'],
       ['/admin/map', 'Road Map', MapIcon, 'The complete road network with the condition layer'],
       ['/admin/reports', 'Damage Reports', FileText, 'What was reported, what the AI found and where'],
+      ['/admin/events', 'Road Events', TrafficCone, 'Verify reports, mark roads blocked or reopened'],
       ['/admin/risk', 'Risk Prediction', TrendingUp, 'Which roads are likely to deteriorate next'],
       ['/admin/maintenance', 'Maintenance', Wrench, 'Priorities, assignments, inspections, repairs and notes'],
       ['/admin/routes', 'Route Analytics', RouteIcon, 'Which routes drivers are steered away from'],
@@ -33,6 +34,7 @@ const PORTALS = {
       ['/maintenance/inspections', 'Inspections', ClipboardCheck, 'Roads waiting for an inspection'],
       ['/maintenance/repairs', 'Repairs', Wrench, 'Plan repairs, record progress and mark them completed'],
       ['/maintenance/reports', 'Reports', FileText, 'Damage reports on your roads'],
+      ['/maintenance/events', 'Road Events', TrafficCone, 'Verify reports, mark roads blocked or reopened'],
       ['/maintenance/profile', 'Profile', UserIcon, 'Your account and password'],
     ],
   },
@@ -41,7 +43,7 @@ const PORTALS = {
 /** Sidebar frame of the administrator and maintenance portals. */
 export default function PortalShell({ portal = 'admin' }) {
   const cfg = PORTALS[portal]
-  const { user, logout } = useAuth()
+  const { user, requestSignOut } = useAuth()
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
   useEffect(() => setOpen(false), [pathname])
@@ -58,12 +60,12 @@ export default function PortalShell({ portal = 'admin' }) {
             <NavLink key={to} to={to}><Icon size={20} aria-hidden="true" />{label}</NavLink>
           ))}
           <hr />
-          <button type="button" className="nav-btn" onClick={logout}><LogOut size={20} aria-hidden="true" />Logout</button>
+          <button type="button" className="nav-btn" onClick={requestSignOut}><LogOut size={20} aria-hidden="true" />Logout</button>
         </nav>
         <div className="side-user">
           <span className="avatar" aria-hidden="true">{initials(user.full_name || user.username)}</span>
           <div className="who"><b>{user.full_name || user.username}</b><small>{cfg.role}</small></div>
-          <button onClick={logout} aria-label="Log out" title="Log out"><LogOut size={18} /></button>
+          <button onClick={requestSignOut} aria-label="Log out" title="Log out"><LogOut size={18} /></button>
         </div>
       </aside>
       <div className="admin-main">

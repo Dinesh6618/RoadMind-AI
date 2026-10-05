@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
@@ -224,6 +224,84 @@ class RouteRequest(BaseModel):
     origin: Point
     destination: Point
     weights: RouteWeights | None = None
+
+
+class RouteCalcRequest(BaseModel):
+    """`POST /api/routes/calculate`: traffic-aware routes scored against RoadMind road condition and road events."""
+
+    origin: Point
+    destination: Point
+    departure_time: datetime | None = Field(default=None, description="Optional future departure (ISO 8601); omitted = now")
+
+
+class CurrentRoute(BaseModel):
+    """The route the person is on now (when re-planning): the alternative's extra km / minutes are measured against it."""
+
+    distance_km: float = Field(ge=0, le=5000)
+    duration_min: float = Field(ge=0, le=100000)
+    label: str = Field(default="", max_length=32)
+
+
+class EmergencyRouteRequest(BaseModel):
+    """`POST /api/emergency/route`: the origin is where the person is (GPS, only after they allow it) or typed in."""
+
+    origin: Point
+    destination: Point
+    destination_kind: Literal["hospital", "fire_station", "police", "custom"] | None = None
+    current: CurrentRoute | None = None
+
+
+class RouteStatusRequest(BaseModel):
+    """`POST /api/emergency/route-status`: the active route's geometry (thinned out is fine) and the events that were on it when planned."""
+
+    geometry: list[list[float]] = Field(min_length=2, max_length=6000)
+    known_event_ids: list[int] = Field(default_factory=list, max_length=200)
+
+    @field_validator("geometry")
+    @classmethod
+    def _points(cls, v: list[list[float]]) -> list[list[float]]:
+        for p in v:
+            if len(p) != 2 or not (-90 <= p[0] <= 90 and -180 <= p[1] <= 180):
+                raise ValueError("geometry must be [[lat, lng], ...] with valid coordinates")
+        return v
+
+
+EventType = Literal["ROAD_BLOCKED", "ROAD_CLOSED", "TEMPORARY_CLOSURE", "CONSTRUCTION", "ACCIDENT", "FLOODED", "SEVERE_DAMAGE", "ROAD_REOPENED"]
+
+
+class RoadEventCreate(BaseModel):
+    """Authorised staff record an event directly (it is verified at once). Communities use POST /api/road-reports."""
+
+    event_type: EventType
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    road_name: str = Field(default="", max_length=160)
+    description: str = Field(default="", max_length=1000)
+    hours: float | None = Field(default=None, gt=0, le=24 * 30, description="How long it lasts (default depends on the type)")
+    expires_at: datetime | None = None
+    radius_m: float | None = Field(default=None, ge=10, le=500)
+    geometry: list[list[float]] | None = Field(default=None, description="Optional [[lat, lng], ...] of the affected stretch", max_length=500)
+
+
+class EventVerify(BaseModel):
+    approved: bool = True
+    note: str = Field(default="", max_length=300)
+    hours: float | None = Field(default=None, gt=0, le=24 * 30)
+
+
+class EventResolve(BaseModel):
+    note: str = Field(default="", max_length=300)
+
+
+class EventUpdate(BaseModel):
+    """Staff change an event: wording, how long it lasts (construction progress), where it applies."""
+
+    description: str | None = Field(default=None, max_length=1000)
+    road_name: str | None = Field(default=None, max_length=160)
+    hours: float | None = Field(default=None, gt=0, le=24 * 30)
+    expires_at: datetime | None = None
+    radius_m: float | None = Field(default=None, ge=10, le=500)
+    event_type: EventType | None = None
 
 
 class MaintenanceUpdate(BaseModel):

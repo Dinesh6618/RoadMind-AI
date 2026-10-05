@@ -38,18 +38,20 @@ Open **http://127.0.0.1:8000**. API documentation is at **http://127.0.0.1:8000/
 
 ## Accounts and security
 
-The first screen (`/`) asks **"Who are you?"** and offers two doors. They are different pages with different designs, never one combined form, and the server refuses an account that tries the wrong door (correct password, wrong door → "This account signs in through the Admin & Road Maintenance portal", with a pointer).
+The first screen - the **Welcome page** at `/welcome` (also `/`) - says *"Welcome to RoadMind AI · Smarter roads. Safer journeys."*, asks **"Who are you?"** and offers two doors. They are different pages with different designs, never one combined form, and the server refuses an account that tries the wrong door (correct password, wrong door → "This account signs in through the Admin & Road Maintenance portal", with a pointer).
 
 | Door | Addresses | Who | How accounts come to exist |
 |---|---|---|---|
-| **I'm a User** (bright, friendly) | `/user/login`, `/user/register`, then `/user/home`, `/user/map`, `/user/report`, `/user/routes`, `/user/profile` | normal users, plus **Continue as Guest** | anyone can create one (full name, email, password, confirm) |
+| **User** (bright, friendly) | `/user/login`, `/user/register`, then **signed-in only**: `/user/home`, `/user/map`, `/user/report`, `/user/routes`, `/user/emergency-route`, `/user/my-reports`, `/user/profile`, `/user/settings` | normal users | anyone can create one (full name, email, password, confirm) |
 | **Admin & Road Maintenance** (dark navy, security-focused) | the **Admin Portal** home `/admin/portal` ("Welcome to the RoadMind AI Admin Portal") with two choices: **Login** → `/admin/login` ("Authorized Access", one sign-in page) and **Create Account** → `/admin/register` ("Create Authorized Account") | administrators *and* road-maintenance employees - the account's role decides the dashboard: `/admin/dashboard` or `/maintenance/dashboard` | the first administrator at `/setup` on the server computer; every other account is **requested** at `/admin/register` and approved by an administrator, or **invited** by an administrator (Admin → Users) |
 
 | Role | Can do |
 |---|---|
 | **Administrator** | everything: dashboard, road map, all damage reports, AI detection results, risk predictions, maintenance priorities and records, route analytics, **user management** (approve or reject account requests, invite staff, change roles, suspend), assign roads to maintenance staff, system settings |
 | **Road maintenance staff** | only the roads assigned to them: view damage, severity, predicted risk and priority; update inspection and repair status; add notes; upload repair-evidence photos; mark repairs completed. Cannot touch other roads, users, security settings, AI models or administrator credentials |
-| **Normal user** | view the map and road conditions, search roads, plan routes and get safer-route recommendations, report damage with photos, see the AI result, see their own reports. **Guests** can do everything except store a report (they can still preview the AI result); `auth.require_login_to_report` controls that |
+| **Normal user** | view the map and road conditions, search roads, plan routes and emergency routes, get safer-route recommendations, report road problems with photos, see the AI result, see their own reports. All of that needs a signed-in account (there is no guest browsing of the user pages) |
+
+**Navigation and logout.** The user pages are guarded by the route itself: not signed in → `/user/login`; logged out → `/welcome`; `/admin/*` not signed in → `/admin/login`; a normal user typing an admin address gets *Access Denied* and the server refuses the API calls too (roles are enforced on the server, never trusted from the browser). **Log out** (from the account menu, Profile or Settings; with an *"Are you sure?"* confirmation) really ends the session: the token is revoked on the server, removed from the browser and every other tab is signed out too, then the Welcome page says *"You have been logged out successfully."* The browser's Back button cannot bring a signed-in page back - the guards run again (the app shell is served with `Cache-Control: no-store`, so it is not resurrected from the back/forward cache either). **Back** buttons use the real browser history (`navigate(-1)`), so they return to the page you really came from; when this tab has no earlier content page (a refresh, a bookmark) they go to the page's logical parent (Settings → Profile, everything else → Home), and never back into a login or welcome screen. Login → Back → Welcome; Register → Back → Login; Admin Login → Back → Admin Portal; Admin Portal → Back → Welcome. The map's road details and the Emergency Route steps are part of the history too, so the phone's Back button closes them one layer at a time. Public data endpoints (road conditions, events, routes, emergency routes) stay open at the API level - they contain no personal data and are rate-limited - while everything about accounts, reports and administration is enforced server-side.
 
 **Email verification.** Administrator and maintenance accounts are unusable until their email address is verified:
 
@@ -76,7 +78,7 @@ After the form is sent the page says *"Your account has been created successfull
 * **No hidden accounts.** There is no predefined or backdoor administrator; nothing in the source, config or front end contains credentials, and the role always comes from the database - never from the browser. Old builds' `admin` account is deleted at start-up, and administrators created before verification existed must verify their email too.
 * **Passwords** are hashed with **Argon2id**. The original password is never stored, logged or returned. Hashes from earlier scrypt builds still work and are upgraded at the next login.
 * **Sessions** are signed JWTs with an expiry (`auth.token_hours` 8 h for users, `auth.staff_token_hours` 4 h for staff). **Logout** revokes that token on the server; changing or resetting a password, deactivating an account or changing its role revokes all of a person's sessions. Tokens travel in the `Authorization` header (not cookies), so classic CSRF does not apply; responses with account data are `Cache-Control: no-store` and the site cannot be framed.
-* **Login protection:** one generic error ("Incorrect email or password"), uniform timing for unknown accounts, throttling per address and per account, and separate rate limits on registration, verification, invitations and resets.
+* **Login protection:** one generic error ("Invalid email or password"), uniform timing for unknown accounts, throttling per address and per account, and separate rate limits on registration, verification, invitations and resets.
 * **The user area has no Admin item** and no first-run banner: the only visible way to the staff door is the second card on the role-selection screen, which opens the Admin Portal home. On a fresh install that page says no administrator exists yet, and **Login** (or opening `/admin/login` / `/setup`) on the server computer leads to **Create Initial Administrator**. The admin login page has no role selector and no way to pick a role; its only sign-up path is the approval-gated request described above.
 * **Access control:** unauthenticated visitors to `/admin/*` or `/maintenance/*` are sent to `/admin/login`; a normal user opening an admin page sees **"Access Denied - Administrator privileges are required to access this page"** with a *Return to User Dashboard* button; a maintenance employee at an admin-only page sees *"Administrator privileges are required."* The server enforces the same on the API (401 / 403), the React guards are only a courtesy. Old addresses (`/login`, `/map`, `/report`, `/routes`...) redirect to their `/user/...` equivalents.
 * **Account Settings** (Settings / Profile): change name, username and password (current + new + confirm). Normal users may change their email too; for staff the verified email *is* the identity, so it can only be changed by an administrator.
@@ -103,6 +105,32 @@ Out of the box RoadMind cannot send email (it has no mail account), so verificat
 
 Other providers work the same way (`ROADMIND_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`; `ROADMIND_SMTP_STARTTLS=0` for port 465/plain). Set `auth.public_url` in `config/roadmind.yaml` to the address people use to reach RoadMind, because the links in the emails are built from it.
 
+## Google Maps setup (real map, live traffic, traffic-aware routing)
+
+RoadMind works without Google - the map then uses OpenStreetMap tiles, routes come from RoadMind's own OpenStreetMap routing and the app says **"Live traffic unavailable"**. With Google Maps Platform you get the full real-world road network, Google's live traffic layer and traffic-aware route alternatives. **Nothing is invented**: if Google cannot be reached the app says so ("Live traffic temporarily unavailable", "Unable to load Google Maps…") instead of showing made-up traffic.
+
+1. **Google Cloud project.** Open https://console.cloud.google.com/ and create (or pick) a project.
+2. **Billing.** Maps Platform needs a billing account on the project (Google gives a monthly free credit, but billing must be switched on, otherwise the map shows "For development purposes only" or errors). Check the current prices and set a budget alert: https://mapsplatform.google.com/pricing/.
+3. **Enable the APIs** (APIs & Services → Library): **Maps JavaScript API** and **Routes API**. Optional: **Geocoding API** (lets the map name the road you click when RoadMind has no data for it) and **Places API (New)** (Emergency Route: nearby hospitals, fire stations and police stations; without it OpenStreetMap places are used).
+4. **Create two API keys** (APIs & Services → Credentials → Create credentials → API key) - two, because they have different risks:
+
+   | Key | Used by | Restrictions to set |
+   |---|---|---|
+   | **Browser key** | the map in the user's browser (Maps JavaScript API) | *Application restrictions → Websites (HTTP referrers)*: your site, for example `http://localhost:5173/*`, `http://127.0.0.1:8000/*` and your production address. *API restrictions → Maps JavaScript API* (+ Geocoding API if you use it). It is visible to anyone who opens the page - the referrer restriction is what protects it. |
+   | **Server key** | the RoadMind server only (Routes API: traffic-aware routing and travel times; Places API (New): nearby emergency services) | *API restrictions → Routes API* (+ Places API (New)). *Application restrictions → IP addresses*: the server's address (not possible from a laptop with a changing address - then rely on the API restriction and a quota cap). Never put it in front-end code. |
+
+5. **Put them in the git-ignored `.env`** next to `README.md` (copy `.env.example`) - or set them as environment variables:
+
+   ```
+   GOOGLE_MAPS_JS_API_KEY=AIza...browser...      # alias: GOOGLE_MAPS_MAPS_JS_API_KEY
+   GOOGLE_MAPS_API_KEY=AIza...server...
+   ```
+
+   The server hands only the *browser* key to the page (`GET /api/map/config`); the server key never leaves the server. For `npm run dev` you may instead put `VITE_GOOGLE_MAPS_API_KEY=` (the browser key) into `frontend/.env.local`. **Never commit keys.**
+6. **Restart RoadMind** and open the map. The status box shows *Base map: Google road network ✓*, *Live traffic: ✓ Google traffic layer on*. `GET /api/traffic` shows which parts are configured. If the map says *"Unable to load Google Maps. Please check your Google Maps API key and enabled APIs."* the key is missing, restricted to the wrong site, billing is off or the API is not enabled - the browser console has Google's exact reason.
+
+Traffic-aware routes use `routingPreference: TRAFFIC_AWARE_OPTIMAL` (`google.routing_preference` in `config/roadmind.yaml`; `TRAFFIC_AWARE` is cheaper) with `extraComputations: TRAFFIC_ON_POLYLINE` to get the slow / jam stretches. Every request is billed by Google, and the routing endpoints are public, so there are three guards: a rate limit per visitor on `POST /api/routes/calculate` and `/api/emergency/*`, an hourly budget (`google.max_requests_per_hour`, default 1200 - past it RoadMind stops calling Google and says "Live traffic temporarily unavailable"), and the quotas you can cap in the Cloud console.
+
 ## Design system
 
 A single premium visual language - lavender and white surfaces, deep-navy type, vivid indigo primary, and one fixed set of road-condition colours (green Good · yellow Moderate · orange High Risk · red Critical · grey No Data). Route lines use green *Recommended*, orange *Alternative* and red *Avoid*. See [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md) and the presentation board of all screens, [docs/design/roadmind-design-board.png](docs/design/roadmind-design-board.png) (source: [board.html](docs/design/board.html)). The board is made of screenshots of the running app, desktop (1440 px) and mobile (390 px).
@@ -110,24 +138,35 @@ A single premium visual language - lavender and white surfaces, deep-navy type, 
 ## How the map works
 
 ```
-              OPENSTREETMAP  ->  complete road network (every drivable segment, junctions, names)
-                                      |
-                                 LEAFLET MAP   (all segments drawn and clickable)
-                                      ^
-                                      |
-                       ROADMIND CONDITION LAYER  (colour only where RoadMind has data)
-                                      ^
-                       SQLite / PostgreSQL  (+ optional PostGIS)
-                                      ^
-                       AI detection + risk prediction (user reports)
+        GOOGLE MAPS  (OpenStreetMap tiles when there is no Google key)
+        the complete real road network, road names, live traffic layer       <- the map ALWAYS shows every real road
+                              |
+        ROADMIND OVERLAYS, loaded separately (their absence never hides the map)
+        road condition (damage, severity, risk, maintenance) · road events (blocked, closed, construction, accidents, flooding)
+                              |
+        SMART ROUTES / EMERGENCY ROUTES:  Google Routes (traffic-aware) + RoadMind condition + verified events  ->  best available route
 ```
 
-* **Every road is visible and clickable.** Click a road with data for condition, severity, damage type, report count, last report, predicted risk and maintenance priority; click a grey road to see *"Condition data unavailable"* and a **Report damage here** button.
-* **Filters** show or hide each of the five states; hiding UNKNOWN hides only the grey roads. At wide zoom levels minor service streets are drawn only when zoomed in (the same rule for every road, with or without data); roads that have RoadMind data are always drawn.
-* **Intersections** appear as dots when zoomed in. A **Roads only** base layer draws the network on a plain background.
-* **Reports attach to real road segments.** If a report lands where no network is loaded, RoadMind fetches the roads around it from OpenStreetMap first. A report on an UNKNOWN road gives that road its first condition.
-* **More area on demand:** "Load missing roads here" imports the OpenStreetMap network for the current view (size-limited, rate-limited, cached).
-* **Routes use the complete network.** Candidate routes are computed on the whole stored network (one-way streets and road classes respected), then scored against RoadMind's condition layer. The recommended route is drawn as a thick line over the visible network. Stretches without data are reported as unknown and are not rewarded or penalised (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+* **The base map is Google's (or OpenStreetMap's), never RoadMind's database.** Zoom and pan anywhere and every real street is there, with an empty RoadMind database, no reports, or a failing RoadMind API. The status box shows what is loaded: *Base map: Google road network ✓ · Live traffic: ✓ Google traffic layer on · RoadMind data: 24 roads · Blocked roads: 2 · Last RoadMind update: 2 min ago* - or *RoadMind data: No data for this area*. It never says "0 roads loaded".
+* **RoadMind colours only roads it has data for**: green Good, yellow Moderate, orange High Risk, red Critical. Every other road keeps the normal map look; click it and RoadMind says *"Condition data unavailable"* - that is **not** "safe" and not "damaged" - with a **Report damage here** button. The condition overlay is drawn thicker and white-cased so it cannot be confused with Google's live-traffic colours.
+* **Road events** (🚧 BLOCKED, ⛔ ROAD CLOSED, construction, accident, flooding, severe damage) are drawn red/orange/amber. A road is never "permanently blocked": every event has an expiry and a verification status - community reports are shown as *unverified* until an administrator or road-maintenance employee verifies them (Admin / Maintenance → **Road Events**).
+* **Click anything**: a road with data (condition, severity, AI confidence, potholes/cracks, user reports, last report, predicted deterioration risk for about 90 days, maintenance, OPEN or 🚧 BLOCKED with reason, reporter-verified, expected reopening), an event, or any other spot (name from Google when available).
+* **Report a problem** (`/user/report`): pothole, crack, flooding, accident, blocked road, construction or dangerous road condition, with GPS location, photo and description. Potholes, cracks and dangerous-condition photos go through the AI damage detector; blockages become unverified events until staff verify them.
+* **Smart routes** (`/user/routes`): Google's traffic-aware alternatives are scored with the RoadMind Route Risk Score (traffic 30 %, road damage 25 %, predicted damage 15 %, blockage 30 %, configurable). A route with a verified blockage is **AVOID**; if the route you would normally take is blocked you get a 🚧 ROAD BLOCKED notice and the recommended alternative. Without Google the page says *Live traffic unavailable* and uses RoadMind's own routing.
+* **Emergency Route** (`/user/emergency-route`, also a button on Home and the Route Planner): see below.
+* The older OpenStreetMap import ("Load missing roads") still exists for RoadMind's own records and offline routing, but it is no longer what the map shows (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+
+## Emergency Route Mode
+
+A 🚨 **Emergency Route** button on the User Home page and the Route Planner opens `/user/emergency-route` (inside the normal user layout, behind the same login as the other user pages; its API endpoints are rate-limited). It is an addition: no existing page was changed or removed.
+
+1. **📍 Use My Location** asks the browser for the real GPS position **only when you tap it** (never on page load, never continuously). If you deny it - *"Location access is required to calculate an emergency route from your current position."* - type your starting place instead.
+2. **Choose the destination**: 🏥 Hospital, 🚒 Fire Station, 🚓 Police Station (real places near you from Google Places, or OpenStreetMap when Google is not set up - each with its distance and a real travel time where one can be computed) or 📍 Custom Location (search any place). RoadMind never invents places or availability: *open now* / opening hours / *emergency department listed* are shown only when the source states them.
+3. **RoadMind picks the best available route.** Routes with a **verified, live closure are excluded outright** (shown ❌ UNAVAILABLE, never recommended; if every route is closed, none is recommended). The rest are ranked by the **Emergency Route Score** - travel time 45 %, traffic 20 %, road damage 15 %, flood/weather 10 %, other road risk 10 % (configurable under `emergency:` in `config/roadmind.yaml`; parts that are not available, such as traffic without Google, are left out and the rest re-weighted). The shortest route does not automatically win. *Flood* counts reported/verified flooding events - RoadMind has no weather feed and does not pretend to.
+4. **🚨 Start Emergency Route** begins monitoring: every minute the route is checked against the live road events (database only), and every three minutes its traffic is refreshed (only with Google). If a verified closure appears you get 🚧 ROAD BLOCKED, *"Finding an alternative route…"* and *"🔵 Alternative route found +1.4 km, +3 min"* with a **Use Alternative** button; other changes show ⚠️ *Route Update*. It never polls GPS.
+5. **Honest by design.** "RoadMind recommends this route based on currently available traffic, road-condition and verified road-event data." It does not claim the fastest emergency response or a safe route. Missing live data is stated ("Some live road information is unavailable"), and the map and normal routing keep working when RoadMind data fails.
+
+Endpoints: `GET /api/emergency/nearby`, `POST /api/emergency/route`, `GET /api/emergency/events`, `POST /api/emergency/route-status` (see [docs/API.md](docs/API.md)). Google needs the **Places API (New)** enabled for the nearby search and the **Routes API** for travel times and routes (see *Google Maps setup*); without them the places come from OpenStreetMap (which needs internet).
 
 ## Try the full demonstration workflow
 
@@ -240,5 +279,8 @@ docs/                architecture, API, model training, design system, design/ (
 * **Tiles are blank, or the roads float on a grey background:** the picture under the roads comes from a tile server and needs internet. Choose *Roads only* in the layer switcher (top right of the map) to see the network without it - the roads themselves never depend on tiles.
 * **Heavy use / your own map provider:** tile.openstreetmap.org is a shared volunteer service with a [usage policy](https://operations.osmfoundation.org/policies/tiles/). For more than light demo use, set `map.tile_url` (and `map.attribution`) in `config/roadmind.yaml` to your own or a commercial tile provider (MapTiler, Stadia Maps, Thunderforest...) - no code change needed.
 * **"Could not reach the OpenStreetMap data service":** importing a new area needs internet and the shared Overpass service may be busy - try again later. The bundled area never needs it.
-* **Port 8000 busy:** `python scripts/start.py --port 8010`.
+* **"Request failed (500)" / "The RoadMind server isn't answering" when logging in (development mode):** the website you are looking at is the Vite dev server (`npm run dev`, usually http://localhost:5173 or 5174 - Vite takes the next free port when another project already uses 5173), and it forwards `/api` to the RoadMind backend on `127.0.0.1:8000`. If the backend is not running, the dev server has nothing to forward to. Start it with `python scripts/start.py` (leave that window open) and try again; the page then loads normally. The dev server now answers with that exact explanation instead of an empty 500.
+* **A real server error during login** is answered with *"Unable to connect to the authentication service. Please try again."* and a **Request ID** such as `AUTH-3FA91C`. The server console shows the matching line with the failing step and the real error (never the password), for example `[ADMIN LOGIN] Request ID: AUTH-3FA91C | Email: ... | Step: account lookup | Error: ...` followed by the traceback. Wrong credentials (401), accounts that cannot sign in yet (403) and too many attempts (429) are never 500s.
+* **Front end on another address:** normally the site and API share one address. If you serve the front end elsewhere, set `VITE_API_URL` (see `frontend/.env.example`) and add the page's origin to `ROADMIND_CORS_ORIGINS` (comma-separated; `*` is ignored). The Vite ports 5173-5177 on `localhost`/`127.0.0.1` are allowed by default.
+* **Port 8000 busy:** `python scripts/start.py --port 8010` (and point the dev server's proxy at it in `frontend/vite.config.js`).
 * **Reset the demo data:** stop the server and delete `backend/data/`.

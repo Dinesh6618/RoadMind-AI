@@ -27,6 +27,12 @@ function describe(detail, fallback) {
   return fallback
 }
 
+// Where the API lives. Empty = the same address as this page (the normal case: RoadMind serves the site, and the Vite
+// dev server proxies /api). Set VITE_API_URL (see frontend/.env.example) to call a backend on another address.
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+
+const SERVER_DOWN = "The RoadMind server isn't answering. Make sure it is running (python scripts/start.py) and try again."
+
 /** Fetch JSON from the RoadMind API. `json` sends a JSON body, `form` a FormData body. */
 export async function api(path, { method = 'GET', json, form, signal } = {}) {
   const headers = { Accept: 'application/json' }
@@ -41,15 +47,18 @@ export async function api(path, { method = 'GET', json, form, signal } = {}) {
   }
   let res
   try {
-    res = await fetch(`/api${path}`, { method, headers, body, signal })
+    res = await fetch(`${API_BASE}/api${path}`, { method, headers, body, signal })
   } catch (err) {
     if (err.name === 'AbortError') throw err
-    throw new ApiError('Cannot reach the RoadMind server. Is it running?', 0)
+    throw new ApiError(SERVER_DOWN, 0, { code: 'server_unreachable' })
   }
   let data = null
   try { data = await res.json() } catch { /* empty body */ }
   if (!res.ok) {
     const detail = data?.detail
+    // A 5xx with no JSON body did not come from RoadMind: it is a proxy / gateway saying the backend is not there
+    // (for example the Vite dev server while the API is stopped). Say that instead of a bare "Request failed (500)".
+    if (res.status >= 500 && !detail) throw new ApiError(`${SERVER_DOWN} (HTTP ${res.status})`, res.status, { code: 'server_unreachable' })
     throw new ApiError(describe(detail, `Request failed (${res.status})`), res.status, detail && typeof detail === 'object' && !Array.isArray(detail) ? detail : {})
   }
   return data

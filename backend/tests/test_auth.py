@@ -4,12 +4,15 @@ Covers first-run setup with email verification (no built-in admin), Argon2 hashi
 staff invitations, profile / password changes, sessions and logout, password reset and legacy upgrades.
 Each test gets its own throw-away app so one test's accounts cannot affect another's."""
 
+import logging
+import re
 import smtplib
 from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select, text
+from sqlalchemy.exc import OperationalError
 
 from app.config import load_settings
 from app.database import utcnow
@@ -932,6 +935,119 @@ def test_a_pending_request_can_ask_for_a_new_verification_link(ready):
     assert first != second
     assert ready.post("/api/auth/verify-email", json={"token": first}).status_code == 400
     assert ready.post("/api/auth/verify-email", json={"token": second}).json()["status"] == "PENDING_ADMIN_APPROVAL"
+
+
+# ==================== admin login: documented reply, exact HTTP statuses, logging, controlled failures
+def test_the_admin_login_endpoint_returns_the_documented_reply(ready):
+    r = ready.post("/api/admin/login", json={"email": ADMIN["email"], "password": ADMIN["password"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["success"] is True and body["message"] == "Login successful"
+    assert body["user"] == {"id": "1", "name": ADMIN["full_name"], "email": ADMIN["email"], "role": "ADMINISTRATOR"}
+    assert body["token"] and body["token"] == body["access_token"] and body["home"] == "/admin/dashboard"
+    assert ready.get("/api/admin/users", headers={"Authorization": f"Bearer {body['token']}"}).status_code == 200  # the token is real
+    assert "password" not in r.text.lower() and ADMIN["password"] not in r.text
+
+
+def test_every_admin_login_outcome_has_its_own_http_status(ready):
+    """401 wrong credentials, 403 for every account that may not (yet) sign in here, 200 otherwise - never a 500."""
+    def go(email, password):
+        return ready.post("/api/admin/login", json={"email": email, "password": password})
+
+    h = bearer(admin_login(ready))
+    assert go(ADMIN["email"], "Wrong-Password-1").status_code == 401
+    unknown = go("nobody@example.org", "Wrong-Password-1")
+    assert unknown.status_code == 401 and unknown.json()["detail"] == "Invalid email or password."
+
+    ready.post("/api/auth/register", json=USER)  # a normal user at the administrator door
+    normal = go(USER["email"], USER["password"])
+    assert normal.status_code == 403 and normal.json()["detail"]["code"] == "wrong_portal" and "token" not in normal.text
+
+    assert register_staff(ready).status_code == 201  # account requested, email not verified yet
+    r = go(REQUEST["email"], REQUEST["password"])
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "email_not_verified" and r.json()["detail"]["message"].startswith("Please verify your email before logging in.")
+
+    assert ready.post("/api/auth/verify-email", json={"token": email_token(ready, "verify-email")}).status_code == 200
+    r = go(REQUEST["email"], REQUEST["password"])  # verified, waiting for an administrator
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "pending_admin_approval" and r.json()["detail"]["message"].startswith("Your account is waiting for administrator approval.")
+
+    uid = requester(ready).id
+    assert ready.post(f"/api/admin/users/{uid}/approve", json={}, headers=h).status_code == 200
+    ok = go(REQUEST["email"], REQUEST["password"])  # approved maintenance staff
+    assert ok.status_code == 200 and ok.json()["user"]["role"] == "ROAD_MAINTENANCE" and ok.json()["home"] == "/maintenance/dashboard"
+
+    assert ready.patch(f"/api/admin/users/{uid}", json={"is_active": False}, headers=h).status_code == 200
+    r = go(REQUEST["email"], REQUEST["password"])
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "suspended" and r.json()["detail"]["message"].startswith("This account has been suspended.")
+
+
+def test_login_attempts_are_logged_by_step_and_never_with_the_password(ready, caplog):
+    secret = "Sup3r-Secret-Typed-Value"
+    with caplog.at_level(logging.INFO, logger="roadmind.auth"):
+        ready.post("/api/admin/login", json={"email": ADMIN["email"], "password": secret})  # wrong password
+        ready.post("/api/auth/staff/login", json={"identifier": USER["email"], "password": secret})  # no such account
+        ready.post("/api/admin/login", json={"email": ADMIN["email"], "password": ADMIN["password"]})  # success
+    text = caplog.text
+    assert f"[ADMIN LOGIN] Email: {ADMIN['email']} | Step: password verification | Result: 401 wrong password" in text
+    assert f"Email: {USER['email']} | Step: password verification | Result: 401 no such account" in text
+    assert f"[ADMIN LOGIN] Email: {ADMIN['email']} | Result: success | Role: admin" in text
+    assert secret not in text and ADMIN["password"] not in text
+
+
+@pytest.mark.parametrize("path", ["/api/admin/login", "/api/auth/staff/login", "/api/auth/login"])
+@pytest.mark.parametrize("failure", [
+    RuntimeError("no such column: users.email_verified_at"),
+    OperationalError("SELECT users.id FROM users", {}, Exception("unable to open database file")),
+])
+def test_a_genuine_server_failure_is_a_controlled_500_with_the_real_error_only_in_the_log(ready, caplog, monkeypatch, path, failure):
+    from app.services import accounts
+
+    def boom(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(accounts, "find_by_identifier", boom)
+    typed = "Typed-Password-Value-1"
+    with caplog.at_level(logging.ERROR, logger="roadmind.auth"):
+        r = ready.post(path, json={"identifier": ADMIN["email"], "email": ADMIN["email"], "password": typed})
+    assert r.status_code == 500
+    d = r.json()["detail"]
+    assert d["code"] == "auth_error" and re.fullmatch(r"AUTH-[0-9A-F]{6}", d["request_id"])
+    assert d["message"] == "Unable to connect to the authentication service. Please try again."
+    assert type(failure).__name__ not in r.text and "database file" not in r.text and "email_verified_at" not in r.text  # nothing internal reaches the browser
+    assert d["request_id"] in caplog.text and "Step: account lookup" in caplog.text and str(failure.args[0]) in caplog.text
+    assert "Traceback" in caplog.text or any(rec.exc_info for rec in caplog.records)  # the full traceback is in the log
+    assert typed not in caplog.text and typed not in r.text
+
+
+def test_other_unexpected_errors_also_get_a_json_body_and_a_request_id(ready, caplog, monkeypatch):
+    from app.services import accounts
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated crash")
+
+    monkeypatch.setattr(accounts, "admin_exists", boom)
+    quiet = TestClient(ready.app, raise_server_exceptions=False)  # a browser sees the response, it does not get the exception
+    with caplog.at_level(logging.ERROR, logger="roadmind"):
+        r = quiet.get("/api/auth/setup-status")
+    assert r.status_code == 500 and r.headers["content-type"].startswith("application/json")
+    d = r.json()["detail"]
+    assert d["code"] == "server_error" and re.fullmatch(r"ERR-[0-9A-F]{6}", d["request_id"]) and "simulated crash" not in r.text
+    assert d["request_id"] in caplog.text and "simulated crash" in caplog.text
+
+
+def test_cors_allows_the_vite_dev_ports_and_nothing_else(ready):
+    def preflight(origin):
+        return ready.options("/api/auth/staff/login", headers={"Origin": origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"})
+
+    for origin in ("http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5175"):  # Vite moves to the next port when 5173 is taken
+        assert preflight(origin).headers.get("access-control-allow-origin") == origin
+    assert "access-control-allow-origin" not in preflight("https://evil.example").headers
+
+
+def test_extra_cors_origins_come_from_the_environment_and_never_as_a_wildcard(monkeypatch, tmp_path):
+    monkeypatch.setenv("ROADMIND_CORS_ORIGINS", "https://roadmind.example/, *")
+    s = load_settings({"data_dir": tmp_path})
+    assert "https://roadmind.example" in s.cors_origins and "*" not in s.cors_origins
 
 
 # ======================================================= legacy / upgrades

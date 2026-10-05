@@ -84,16 +84,21 @@ def network_in_bbox(db: Session, state: AppState, south: float, west: float, nor
 def network_info(db: Session, state: AppState) -> dict:
     total = db.scalar(select(func.count(Road.id))) or 0
     known = db.scalar(select(func.count(Road.id)).where(Road.has_data.is_(True))) or 0
-    areas = db.execute(select(NetworkArea.south, NetworkArea.west, NetworkArea.north, NetworkArea.east)).all()
+    areas = db.execute(select(NetworkArea.south, NetworkArea.west, NetworkArea.north, NetworkArea.east, NetworkArea.segments).order_by(NetworkArea.segments.desc())).all()
     bounds = None
+    all_bounds = None
     if areas:
-        bounds = [min(a[0] for a in areas), min(a[1] for a in areas), max(a[2] for a in areas), max(a[3] for a in areas)]
+        # The view a visitor starts in is the MAIN area (the one with the most roads), never the midpoint of everything that was
+        # ever imported: after someone loads a second area far away, the union's centre would be empty ground.
+        bounds = [areas[0][0], areas[0][1], areas[0][2], areas[0][3]]
+        all_bounds = [min(a[0] for a in areas), min(a[1] for a in areas), max(a[2] for a in areas), max(a[3] for a in areas)]
     simulated = (db.scalar(select(func.count(RoadReport.id)).where(RoadReport.source == "seed")) or 0) > 0
     return {
         "segments": total,
         "segments_with_data": known,
         "data_coverage": round(known / total, 4) if total else 0.0,
-        "bounds": bounds,
+        "bounds": bounds,  # the main area
+        "all_bounds": all_bounds,  # every imported area together
         "center": [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2] if bounds else None,
         "places": db.scalar(select(func.count(Place.id))) or 0,
         "simulated_data": simulated,

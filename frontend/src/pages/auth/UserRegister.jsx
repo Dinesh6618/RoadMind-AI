@@ -38,7 +38,7 @@ export default function UserRegister() {
   }
 
   return (
-    <UserLayout>
+    <UserLayout back="/user/login">
       <h2>Create your account</h2>
       <p className="sub">Report damage, keep track of your reports and plan safer routes.</p>
       <form onSubmit={submit} noValidate>
@@ -66,7 +66,7 @@ export default function UserRegister() {
         <button className="btn btn-primary btn-lg btn-block" disabled={busy}>{busy ? 'Creating account…' : 'Create Account'}</button>
         <div className="auth-links"><span className="muted">Already have an account?</span><Link to="/user/login">Login</Link></div>
       </form>
-      <Link className="back-link" to="/"><ArrowLeft size={16} aria-hidden="true" /> Back to Role Selection</Link>
+      <Link className="back-link" to="/user/login"><ArrowLeft size={16} aria-hidden="true" /> Back to Login</Link>
     </UserLayout>
   )
 }

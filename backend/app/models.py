@@ -298,6 +298,41 @@ class MaintenancePriority(Base):
     road: Mapped[Road] = relationship(back_populates="priority")
 
 
+class RoadEvent(Base):
+    """Something happening on a road right now: a blockage, closure, construction, accident, flooding, severe damage
+    - or the road reopening. Events come from community reports (PENDING until staff verify them) or are entered by
+    authorised staff (VERIFIED at once). Nothing is blocked for ever: every event has `expires_at`, and staff can
+    resolve it earlier. The location is a point (+ radius) and optionally the blocked stretch; `road_id` is only a
+    convenience link to a RoadMind road, because the real road network comes from Google Maps, not from our database.
+
+    verification_status: PENDING | VERIFIED | REJECTED          status: ACTIVE | RESOLVED | EXPIRED
+    Only VERIFIED + ACTIVE + not-yet-expired events strongly affect route recommendations."""
+
+    __tablename__ = "road_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    road_id: Mapped[int | None] = mapped_column(ForeignKey("roads.id", ondelete="SET NULL"), nullable=True, index=True)
+    road_name: Mapped[str] = mapped_column(String(160), default="")
+    lat: Mapped[float] = mapped_column(Float, index=True)
+    lng: Mapped[float] = mapped_column(Float, index=True)
+    radius_m: Mapped[float] = mapped_column(Float, default=50.0)  # how close a route must pass for the event to count
+    geometry: Mapped[list | None] = mapped_column(JSON, nullable=True)  # optional [[lat, lng], ...] of the affected stretch
+    event_type: Mapped[str] = mapped_column(String(24), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    reported_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    source: Mapped[str] = mapped_column(String(8), default="user")  # user (community report) | staff
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    verification_status: Mapped[str] = mapped_column(String(10), default="PENDING", index=True)
+    status: Mapped[str] = mapped_column(String(10), default="ACTIVE", index=True)
+    verified_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    review_note: Mapped[str] = mapped_column(String(300), default="")
+    evidence_path: Mapped[str | None] = mapped_column(String(256), nullable=True)  # photo, stored under media/events/
+
+
 class RouteQuery(Base):
     __tablename__ = "route_queries"
 
